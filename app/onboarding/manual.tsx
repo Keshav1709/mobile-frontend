@@ -28,10 +28,10 @@ export default function Manual() {
       for (const candidate of candidates) {
         if (await isOnvifDevice(address, candidate, 6000)) {
           select({
-            id: `${address}:${candidate}`,
             ip: address,
             port: candidate,
             serviceUrl: serviceUrl(address, candidate),
+            label: address,
           });
           router.push('/onboarding/credentials');
           return;

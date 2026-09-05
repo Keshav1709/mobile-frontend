@@ -27,6 +27,7 @@ export default function Success() {
 
   return (
     <Screen
+      onBack={() => router.replace('/(tabs)')}
       eyebrow="Done"
       title="Camera connected"
       subtitle="It's registered to your account."

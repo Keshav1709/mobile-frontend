@@ -10,7 +10,7 @@ const PLANNED = [
   { title: 'Person and vehicle detection', tint: hue.lime },
   { title: 'Zone intrusion alerts', tint: hue.pink },
   { title: 'Loitering and crowd analysis', tint: hue.violet },
-  { title: 'Natural-language footage search', tint: hue.amber },
+  { title: 'Natural-language footage search', tint: hue.orange },
 ];
 
 export default function AiFeatures() {

@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 
 import { useTheme } from '@/state/theme';
-import { font, radius, space } from '@/theme';
+import { font, radius, shade, space } from '@/theme';
 
 export type GlassSlide = {
   key: string;
@@ -31,6 +31,8 @@ const SNAP = CARD_WIDTH + SPACING;
 export function GlassCarousel({ slides }: { slides: GlassSlide[] }) {
   const { color, scheme } = useTheme();
   const scrollX = useRef(new Animated.Value(0)).current;
+  // Category hues are tuned for a dark ground; deepen them on a light one.
+  const ink = (tint: string) => (scheme === 'light' ? shade(tint, -0.45) : tint);
 
   return (
     <Animated.ScrollView
@@ -82,10 +84,10 @@ export function GlassCarousel({ slides }: { slides: GlassSlide[] }) {
                 styles.sheen,
               ]}
             />
-            <View style={[styles.stripe, { backgroundColor: slide.tint }]} />
+            <View style={[styles.stripe, { backgroundColor: ink(slide.tint) }]} />
 
             <View style={styles.body}>
-              <Text style={[font.eyebrow, { color: slide.tint }]}>{slide.title}</Text>
+              <Text style={[font.eyebrow, { color: ink(slide.tint) }]}>{slide.title}</Text>
               <View style={styles.rows}>
                 {slide.rows.map((row) => (
                   <View key={row.label} style={styles.row}>

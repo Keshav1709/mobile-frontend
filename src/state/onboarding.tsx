@@ -1,19 +1,28 @@
 import { createContext, ReactNode, useContext, useMemo, useRef, useState } from 'react';
 
-import { FoundCamera } from '@/onvif/scan';
 import { Credentials } from '@/onvif/soap';
+
+/** The camera being added, from either search path or manual entry. */
+export type Target = {
+  ip: string;
+  port: number;
+  serviceUrl: string;
+  label: string;
+  /** Set when the agent found it; lets the agent connect without re-scanning. */
+  temporaryId?: string;
+};
 
 /**
  * State for one camera-onboarding run.
  *
  * Credentials live in a ref for the length of the flow and are cleared by
- * `clear()`. They are never written to storage, a URL, or a log.
+ * `clear()`. They are never written to a URL or a log, and reach storage only
+ * when the phone is doing the connecting itself.
  */
 type OnboardingValue = {
-  camera: FoundCamera | null;
-  select: (camera: FoundCamera) => void;
+  target: Target | null;
+  select: (target: Target) => void;
   setCredentials: (credentials: Credentials) => void;
-  /** Reads the credentials once, for the connect attempt. */
   takeCredentials: () => Credentials;
   clear: () => void;
 };
@@ -21,13 +30,13 @@ type OnboardingValue = {
 const OnboardingContext = createContext<OnboardingValue | null>(null);
 
 export function OnboardingProvider({ children }: { children: ReactNode }) {
-  const [camera, setCamera] = useState<FoundCamera | null>(null);
+  const [target, setTarget] = useState<Target | null>(null);
   const credentials = useRef<Credentials | null>(null);
 
   const value = useMemo<OnboardingValue>(
     () => ({
-      camera,
-      select: setCamera,
+      target,
+      select: setTarget,
       setCredentials: (next) => {
         credentials.current = next;
       },
@@ -37,10 +46,10 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
       },
       clear: () => {
         credentials.current = null;
-        setCamera(null);
+        setTarget(null);
       },
     }),
-    [camera],
+    [target],
   );
 
   return <OnboardingContext.Provider value={value}>{children}</OnboardingContext.Provider>;

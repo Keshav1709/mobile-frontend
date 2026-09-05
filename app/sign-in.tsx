@@ -16,6 +16,7 @@ import { Button } from '@/components/Button';
 import { Contours } from '@/components/Contours';
 import { Glow } from '@/components/Glow';
 import { Orb } from '@/components/Orb';
+import { Pulse } from '@/components/Pulse';
 import { Pill } from '@/components/Pill';
 import { TextField } from '@/components/TextField';
 import { errorMessage } from '@/lib/helpers';
@@ -57,7 +58,9 @@ export default function SignIn() {
         </View>
         <Pressable style={styles.hero} onPress={Keyboard.dismiss}>
           <Pill label="Zero Forg Vision" tone="accent" dot />
-          <Orb size={200} />
+          <Pulse duration={4200} min={0.72}>
+            <Orb size={200} />
+          </Pulse>
           <View style={styles.copy}>
             <Text style={[font.display, styles.headline, { color: color.text }]}>
               Every camera,{'\n'}

@@ -8,19 +8,11 @@ import { Button } from '@/components/Button';
 import { ChipGroup } from '@/components/ChipGroup';
 import { Screen } from '@/components/Screen';
 import { TextField } from '@/components/TextField';
+import { CAMERA_TYPES } from '@/lib/cameraTypes';
 import { errorMessage } from '@/lib/helpers';
 import { useAuth } from '@/state/auth';
 import { useTheme } from '@/state/theme';
 import { font, space } from '@/theme';
-
-const CAMERA_TYPES = [
-  'IP camera',
-  'NVR / DVR',
-  'PTZ',
-  'Doorbell',
-  'Thermal',
-  'Not sure yet',
-] as const;
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -56,7 +48,8 @@ export default function CreateProfile() {
         camera_type: cameraType,
       });
       await refreshUser();
-      router.replace('/(tabs)');
+      if (router.canGoBack()) router.back();
+      else router.replace('/(tabs)');
     } catch (cause) {
       setError(errorMessage(cause, "We couldn't save your profile."));
     } finally {
@@ -66,8 +59,9 @@ export default function CreateProfile() {
 
   return (
     <Screen
+      onBack={router.canGoBack() ? () => router.back() : undefined}
       eyebrow="Your profile"
-      title="Set up your profile"
+      title={user?.profile_completed ? 'Edit your profile' : 'Set up your profile'}
       subtitle="A few details so Zero Forg knows who it's protecting."
       footer={
         <Button

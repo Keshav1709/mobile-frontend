@@ -1,10 +1,10 @@
-import { Tabs } from 'expo-router';
+import { router, Tabs } from 'expo-router';
 import { StyleSheet, Text } from 'react-native';
 
 import { useTheme } from '@/state/theme';
 import { font } from '@/theme';
 
-const ICONS = { live: '▣', profile: '◍', ai: '✦', alerts: '☰' } as const;
+const ICONS = { home: '⌂', live: '▣', add: '＋', profile: '◍', ai: '✦', alerts: '☰' } as const;
 
 function TabIcon({ name, focused }: { name: keyof typeof ICONS; focused: boolean }) {
   const { color } = useTheme();
@@ -37,8 +37,29 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
+          title: 'Home',
+          tabBarIcon: ({ focused }) => <TabIcon name="home" focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
+        name="live"
+        options={{
           title: 'Live',
           tabBarIcon: ({ focused }) => <TabIcon name="live" focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
+        name="add"
+        options={{
+          title: 'Add camera',
+          tabBarIcon: ({ focused }) => <TabIcon name="add" focused={focused} />,
+        }}
+        listeners={{
+          // Open the flow full-screen instead of nesting it inside the tabs.
+          tabPress: (event) => {
+            event.preventDefault();
+            router.push('/onboarding');
+          },
         }}
       />
       <Tabs.Screen

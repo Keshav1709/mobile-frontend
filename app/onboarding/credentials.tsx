@@ -8,7 +8,7 @@ import { TextField } from '@/components/TextField';
 import { useOnboarding } from '@/state/onboarding';
 
 export default function CredentialsScreen() {
-  const { camera, setCredentials } = useOnboarding();
+  const { target, setCredentials } = useOnboarding();
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
 
@@ -23,7 +23,7 @@ export default function CredentialsScreen() {
       onBack={() => router.back()}
       eyebrow="Authenticate"
       title="Camera sign-in"
-      subtitle={`Enter the username and password for ${camera?.ip ?? 'this camera'}.`}
+      subtitle={`Enter the username and password for ${target?.label ?? 'this camera'}.`}
       footer={
         <>
           <Button label="Connect" onPress={submit} disabled={!username.trim() || !password} />

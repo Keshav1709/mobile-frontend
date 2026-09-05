@@ -6,93 +6,149 @@ import { Banner } from '@/components/Banner';
 import { Button } from '@/components/Button';
 import { Screen } from '@/components/Screen';
 import { Stage, StageList, StageState } from '@/components/StageList';
+import { errorMessage } from '@/lib/helpers';
 import { connectCamera, CONNECT_ERRORS, ConnectStage } from '@/onvif/connect';
 import { publishStream, streamNames, withRtspCredentials } from '@/onvif/relay';
-import { saveCredentials } from '@/state/cameraCredentials';
 import { OnvifError } from '@/onvif/soap';
+import { useAgent } from '@/state/agent';
 import { useAuth } from '@/state/auth';
+import { saveCredentials } from '@/state/cameraCredentials';
 import { useOnboarding } from '@/state/onboarding';
+
+const POLL_MS = 800;
 
 const LABELS: Record<ConnectStage, string> = {
   found: 'Camera found',
   authenticating: 'Authenticating',
   profile: 'Getting camera profile',
-  stream: 'Resolving video stream',
+  stream: 'Checking the video stream',
 };
 
 const ORDER: ConnectStage[] = ['found', 'authenticating', 'profile', 'stream'];
 
 export default function Connecting() {
-  const { camera, takeCredentials, clear } = useOnboarding();
+  const { target, takeCredentials, clear } = useOnboarding();
+  const { api: agent } = useAgent();
   const { user } = useAuth();
-  const [reached, setReached] = useState<ConnectStage | null>(null);
+
+  const [stages, setStages] = useState<Record<ConnectStage, StageState>>({
+    found: 'active',
+    authenticating: 'pending',
+    profile: 'pending',
+    stream: 'pending',
+  });
   const [error, setError] = useState<string | null>(null);
   const started = useRef(false);
 
   useEffect(() => {
-    if (started.current || !camera || !user) return;
+    if (started.current || !target || !user) return;
     started.current = true;
     let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
-    (async () => {
-      try {
-        const credentials = takeCredentials();
-        const result = await connectCamera(camera, credentials, (stage) => {
-          if (live) setReached(stage);
-        });
+    const reach = (stage: ConnectStage) => {
+      if (!live) return;
+      const index = ORDER.indexOf(stage);
+      setStages(
+        Object.fromEntries(
+          ORDER.map((key, position) => [
+            key,
+            position <= index ? 'done' : position === index + 1 ? 'active' : 'pending',
+          ]),
+        ) as Record<ConnectStage, StageState>,
+      );
+    };
 
-        const cameraId = `cam_${camera.ip.replace(/\./g, '_')}_${camera.port}`;
+    /**
+     * The agent authenticates, validates the stream by decoding a frame and
+     * keeps the password encrypted on its own host. Nothing is stored here.
+     */
+    const viaAgent = async () => {
+      const credentials = takeCredentials();
+      const { job_id } = await agent!.startConnect({
+        temporary_id: target.temporaryId,
+        ip: target.ip,
+        port: target.port,
+        tenant_id: user.tenant_id,
+        user_id: user.user_id,
+        ...credentials,
+      });
 
-        // The relay gets the authenticated RTSP URLs; the cloud never does.
-        const authed = (uri: string) =>
-          withRtspCredentials(uri, credentials.username, credentials.password);
-        const names = streamNames(cameraId);
-        const [streaming] = await Promise.all([
-          publishStream(names.preview, authed(result.previewUri)),
-          publishStream(names.high, authed(result.streamUri)),
-        ]);
-        await cloudApi.registerCamera({
-          camera_id: cameraId,
-          tenant_id: user.tenant_id,
-          user_id: user.user_id,
-          display_name:
-            [result.device.manufacturer, result.device.model].filter(Boolean).join(' ') ||
-            `Camera ${camera.ip}`,
-          manufacturer: result.device.manufacturer,
-          model: result.device.model,
-          firmware: result.device.firmware,
-          serial_number: result.device.serialNumber,
-          ip: camera.ip,
-          onvif_xaddr: camera.serviceUrl,
-          // The token, not the name: PTZ and stream calls address profiles by token.
-          selected_profile: result.profile.token,
-          resolution: result.profile.resolution,
-          connection_status: 'CONNECTED',
-          stream_reference: streaming ? cameraId : null,
-        });
-
-        // Pan/tilt and reconnect authenticate on every call, so the credentials
-        // have to outlive this flow. They stay in the device keychain.
-        await saveCredentials(cameraId, credentials);
-
-        clear();
-        if (live) router.replace({ pathname: '/onboarding/success', params: { id: cameraId } });
-      } catch (cause) {
+      const poll = async () => {
         if (!live) return;
-        setError(
-          cause instanceof OnvifError
-            ? CONNECT_ERRORS[cause.code]
-            : 'Something went wrong while connecting the camera.',
-        );
-      }
-    })();
+        const job = await agent!.connectJob(job_id);
+        setStages(job.stages as Record<ConnectStage, StageState>);
+
+        if (job.error) return setError(job.error.message);
+        if (job.status === 'connected' && job.camera_id) {
+          clear();
+          router.replace({ pathname: '/onboarding/success', params: { id: job.camera_id } });
+          return;
+        }
+        timer = setTimeout(poll, POLL_MS);
+      };
+
+      await poll();
+    };
+
+    /** No agent: the phone does the whole sequence and holds the credentials. */
+    const viaPhone = async () => {
+      const credentials = takeCredentials();
+      const result = await connectCamera(
+        { id: `${target.ip}:${target.port}`, ...target },
+        credentials,
+        reach,
+      );
+
+      const cameraId = `cam_${target.ip.replace(/\./g, '_')}_${target.port}`;
+      const authed = (uri: string) =>
+        withRtspCredentials(uri, credentials.username, credentials.password);
+      const names = streamNames(cameraId);
+      const [streaming] = await Promise.all([
+        publishStream(names.preview, authed(result.previewUri)),
+        publishStream(names.high, authed(result.streamUri)),
+      ]);
+
+      await cloudApi.registerCamera({
+        camera_id: cameraId,
+        tenant_id: user.tenant_id,
+        user_id: user.user_id,
+        display_name:
+          [result.device.manufacturer, result.device.model].filter(Boolean).join(' ') ||
+          `Camera ${target.ip}`,
+        manufacturer: result.device.manufacturer,
+        model: result.device.model,
+        firmware: result.device.firmware,
+        serial_number: result.device.serialNumber,
+        ip: target.ip,
+        onvif_xaddr: target.serviceUrl,
+        selected_profile: result.profile.token,
+        resolution: result.profile.resolution,
+        connection_status: 'CONNECTED',
+        stream_reference: streaming ? cameraId : null,
+      });
+
+      await saveCredentials(cameraId, credentials);
+      clear();
+      if (live) router.replace({ pathname: '/onboarding/success', params: { id: cameraId } });
+    };
+
+    (agent ? viaAgent() : viaPhone()).catch((cause) => {
+      if (!live) return;
+      setError(
+        cause instanceof OnvifError
+          ? CONNECT_ERRORS[cause.code]
+          : errorMessage(cause, 'Something went wrong while connecting the camera.'),
+      );
+    });
 
     return () => {
       live = false;
+      clearTimeout(timer);
     };
     // Runs once: the credentials are consumed on the first attempt.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [camera, user]);
+  }, [target, user, agent]);
 
   if (error) {
     return (
@@ -115,21 +171,18 @@ export default function Connecting() {
   return (
     <Screen
       onBack={() => router.replace('/onboarding')}
-      eyebrow="Connecting"
+      eyebrow={agent ? 'Connecting · local agent' : 'Connecting'}
       title="Connecting…"
-      subtitle="Talking to the camera over Wi-Fi."
+      subtitle={
+        agent
+          ? 'The agent is authenticating and testing the video.'
+          : 'Talking to the camera over Wi-Fi.'
+      }
     >
-      <StageList stages={stages(reached)} />
+      <StageList stages={list(stages)} />
     </Screen>
   );
 }
 
-/** Each step flips to done only once the camera has actually answered it. */
-function stages(reached: ConnectStage | null): Stage[] {
-  const index = reached ? ORDER.indexOf(reached) : -1;
-  return ORDER.map((key, position) => {
-    const state: StageState =
-      position <= index ? 'done' : position === index + 1 ? 'active' : 'pending';
-    return { key, label: LABELS[key], state };
-  });
-}
+const list = (stages: Record<ConnectStage, StageState>): Stage[] =>
+  ORDER.map((key) => ({ key, label: LABELS[key], state: stages[key] ?? 'pending' }));

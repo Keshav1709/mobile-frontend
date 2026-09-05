@@ -2,6 +2,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { AgentProvider } from '@/state/agent';
 import { AuthProvider } from '@/state/auth';
 import { OnboardingProvider } from '@/state/onboarding';
 import { ThemeProvider, useTheme } from '@/state/theme';
@@ -11,9 +12,11 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <ThemeProvider>
         <AuthProvider>
-          <OnboardingProvider>
-            <Shell />
-          </OnboardingProvider>
+          <AgentProvider>
+            <OnboardingProvider>
+              <Shell />
+            </OnboardingProvider>
+          </AgentProvider>
         </AuthProvider>
       </ThemeProvider>
     </SafeAreaProvider>

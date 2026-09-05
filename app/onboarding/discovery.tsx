@@ -1,32 +1,86 @@
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
+import { Animated, Easing } from 'react-native';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { AgentDevice } from '@/agent/client';
+import { cloudApi } from '@/api/cloud';
 import { Banner } from '@/components/Banner';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { Pill } from '@/components/Pill';
 import { Screen } from '@/components/Screen';
+import { errorMessage } from '@/lib/helpers';
+import { serviceUrl } from '@/onvif/device';
 import { FoundCamera, localSubnet, scanForCameras } from '@/onvif/scan';
+import { useAgent } from '@/state/agent';
+import { useAuth } from '@/state/auth';
 import { useOnboarding } from '@/state/onboarding';
 import { useTheme } from '@/state/theme';
 import { font, radius, space } from '@/theme';
 
+const POLL_MS = 800;
+
+/** A result from either search path, in one shape the list can render. */
+type Result = FoundCamera & {
+  label: string;
+  detail: string | null;
+  onvif: boolean;
+  temporaryId?: string;
+};
+
 export default function Discovery() {
   const { color } = useTheme();
+  const { api: agent } = useAgent();
   const { select } = useOnboarding();
-  const [subnet, setSubnet] = useState<string | null>(null);
-  const [cameras, setCameras] = useState<FoundCamera[]>([]);
+  const { user } = useAuth();
+  const [connectedIps, setConnectedIps] = useState<string[]>([]);
+
+  const [results, setResults] = useState<Result[]>([]);
   const [progress, setProgress] = useState({ checked: 0, total: 254 });
+  const [subnet, setSubnet] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cancel = useRef({ cancelled: false });
+  const fill = useRef(new Animated.Value(0)).current;
+
+  // Cameras already in the registry are shown as connected, not offered again.
+  useEffect(() => {
+    if (!user) return;
+    cloudApi
+      .listCameras(user.tenant_id)
+      .then((cameras) => setConnectedIps(cameras.map((c) => c.ip).filter((ip): ip is string => !!ip)))
+      .catch(() => setConnectedIps([]));
+  }, [user]);
 
   useEffect(() => {
     const signal = cancel.current;
     signal.cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
-    (async () => {
+    /** The agent finds cameras by multicast, so it is faster and sees NVRs. */
+    const viaAgent = async () => {
+      const { scan_id } = await agent!.startScan();
+
+      const poll = async () => {
+        if (signal.cancelled) return;
+        const scan = await agent!.scan(scan_id);
+        setResults(scan.devices.filter((d) => d.onvif || d.rtsp_detected).map(fromAgent));
+        const steps = Object.values(scan.progress).filter(Boolean).length;
+        setProgress({ checked: steps, total: 3 });
+
+        if (scan.status === 'completed' || scan.status === 'failed') {
+          if (scan.error) setError(scan.error.message);
+          setDone(true);
+          return;
+        }
+        timer = setTimeout(poll, POLL_MS);
+      };
+
+      await poll();
+    };
+
+    const viaPhone = async () => {
       const local = await localSubnet();
       if (!local) {
         setError('Connect this phone to Wi-Fi to scan for cameras.');
@@ -37,25 +91,51 @@ export default function Discovery() {
 
       await scanForCameras((update) => {
         if (signal.cancelled) return;
-        setCameras(update.found);
+        setResults(update.found.map(fromPhone));
         setProgress({ checked: update.checked, total: update.total });
       }, signal);
 
       if (!signal.cancelled) setDone(true);
-    })();
+    };
+
+    (agent ? viaAgent() : viaPhone()).catch((cause) => {
+      if (signal.cancelled) return;
+      setError(errorMessage(cause, "The search couldn't be completed."));
+      setDone(true);
+    });
 
     return () => {
       signal.cancelled = true;
+      clearTimeout(timer);
     };
-  }, []);
+  }, [agent]);
 
-  const choose = (camera: FoundCamera) => {
+  const choose = (result: Result) => {
+    if (connectedIps.includes(result.ip)) {
+      router.replace('/(tabs)');
+      return;
+    }
     cancel.current.cancelled = true;
-    select(camera);
+    select({
+      ip: result.ip,
+      port: result.port,
+      serviceUrl: result.serviceUrl,
+      label: result.label,
+      temporaryId: result.temporaryId,
+    });
     router.push('/onboarding/credentials');
   };
 
   const percent = Math.round((progress.checked / Math.max(progress.total, 1)) * 100);
+
+  useEffect(() => {
+    Animated.timing(fill, {
+      toValue: percent,
+      duration: 320,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [percent, fill]);
 
   return (
     <Screen
@@ -63,20 +143,22 @@ export default function Discovery() {
         cancel.current.cancelled = true;
         router.replace('/onboarding');
       }}
-      eyebrow="Discovery"
-      title={done ? heading(cameras.length) : 'Scanning your network…'}
+      eyebrow={agent ? 'Discovery · local agent' : 'Discovery'}
+      title={done ? heading(results.length) : 'Searching for cameras…'}
       subtitle={
         done
-          ? cameras.length
+          ? results.length
             ? 'Choose one to connect.'
-            : 'No ONVIF cameras answered on this network.'
-          : `Checking ${subnet ?? 'your network'} · ${percent}%`
+            : 'No cameras answered on this network.'
+          : agent
+            ? 'The agent is listening for cameras that announce themselves.'
+            : `Checking ${subnet ?? 'your network'} · ${percent}%`
       }
       footer={
         <>
           {done ? (
             <Button
-              label="Scan again"
+              label="Search again"
               variant="secondary"
               onPress={() => router.replace('/onboarding/discovery')}
             />
@@ -92,33 +174,63 @@ export default function Discovery() {
         </>
       }
     >
-      {error ? <Banner tone="error" title="Can't scan" message={error} /> : null}
+      {error ? <Banner tone="error" title="Search failed" message={error} /> : null}
 
       {!done ? (
         <View style={[styles.progress, { backgroundColor: color.surface, borderColor: color.border }]}>
           <View style={[styles.track, { backgroundColor: color.surfaceRaised }]}>
-            <View style={[styles.fill, { width: `${percent}%`, backgroundColor: color.accent }]} />
+            <Animated.View
+              style={[
+                styles.fill,
+                {
+                  backgroundColor: color.accent,
+                  width: fill.interpolate({
+                    inputRange: [0, 100],
+                    outputRange: ['0%', '100%'],
+                  }),
+                },
+              ]}
+            />
           </View>
           <Text style={[font.caption, { color: color.textMuted }]}>
-            {progress.checked} of {progress.total} addresses checked
+            {agent
+              ? `${progress.checked} of ${progress.total} steps complete`
+              : `${progress.checked} of ${progress.total} addresses checked`}
           </Text>
         </View>
       ) : null}
 
-      {cameras.map((camera) => (
-        <Card key={camera.id} glow onPress={() => choose(camera)}>
-          <View style={styles.cardTop}>
-            <Text style={[font.heading, { color: color.text }]}>{camera.ip}</Text>
-            <Text style={[font.label, styles.connect, { color: color.accent }]}>Connect ↗</Text>
-          </View>
-          <View style={styles.tags}>
-            <Pill label="ONVIF" tone="accent" dot />
-            <Pill label={`Port ${camera.port}`} tone="neutral" />
-          </View>
-        </Card>
-      ))}
+      {results.map((result) => {
+        const already = connectedIps.includes(result.ip);
+        return (
+          <Card key={result.id} glow={result.onvif} onPress={() => choose(result)}>
+            <View style={styles.cardTop}>
+              <Text
+                numberOfLines={1}
+                style={[font.heading, styles.cardTitle, { color: color.text }]}
+              >
+                {result.label}
+              </Text>
+              <Text style={[font.label, styles.connect, { color: color.accent }]}>
+                {already ? 'View ↗' : 'Connect ↗'}
+              </Text>
+            </View>
+            {result.detail ? (
+              <Text style={[font.caption, { color: color.textMuted }]}>{result.detail}</Text>
+            ) : null}
+            <View style={styles.tags}>
+              {already ? <Pill label="Connected" tone="live" dot /> : null}
+              <Pill
+                label={result.onvif ? 'ONVIF' : 'RTSP only'}
+                tone={result.onvif ? 'accent' : 'idle'}
+              />
+              <Pill label={`Port ${result.port}`} tone="neutral" />
+            </View>
+          </Card>
+        );
+      })}
 
-      {done && cameras.length === 0 && !error ? (
+      {done && results.length === 0 && !error ? (
         <Banner
           tone="info"
           title="Nothing found"
@@ -128,6 +240,24 @@ export default function Discovery() {
     </Screen>
   );
 }
+
+const fromAgent = (device: AgentDevice): Result => ({
+  id: device.temporary_id,
+  temporaryId: device.temporary_id,
+  ip: device.ip,
+  port: 80,
+  serviceUrl: serviceUrl(device.ip, 80),
+  label: device.manufacturer ?? device.ip,
+  detail: [device.model, device.ip, device.mac].filter(Boolean).join(' · ') || null,
+  onvif: device.onvif,
+});
+
+const fromPhone = (camera: FoundCamera): Result => ({
+  ...camera,
+  label: camera.ip,
+  detail: null,
+  onvif: true,
+});
 
 function heading(count: number): string {
   if (count === 0) return 'No cameras found';
@@ -142,8 +272,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: space.sm,
+    gap: space.md,
   },
+  cardTitle: { flex: 1 },
   connect: { fontSize: 13 },
   tags: { flexDirection: 'row', gap: space.sm, marginTop: space.xs },
 });

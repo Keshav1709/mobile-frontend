@@ -45,16 +45,17 @@ export type UserProfile = {
   date_of_birth: string | null;
   camera_type: string | null;
   auth_provider: string;
+  created_at: string | null;
   profile_completed: boolean;
   onboarding_completed: boolean;
 };
 
-/** Fields the profile screen can write. */
+/** Fields the profile screen can write. Any subset is accepted. */
 export type ProfileDraft = {
-  first_name: string;
+  first_name?: string;
   last_name?: string;
-  email: string;
+  email?: string;
   phone_number?: string;
   date_of_birth?: string;
-  camera_type: string;
+  camera_type?: string;
 };
