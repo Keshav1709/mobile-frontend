@@ -1,0 +1,45 @@
+{
+  "expo": {
+    "name": "Zero Forg",
+    "slug": "zeroforg-mobile",
+    "scheme": "zeroforg",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.zeroforg.mobile",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Scan the pairing code shown by your Zero Forg Agent.",
+        "NSLocalNetworkUsageDescription": "Find and connect cameras on your local network.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      },
+      "backgroundColor": "#05070B"
+    },
+    "android": {
+      "package": "com.zeroforg.mobile",
+      "usesCleartextTraffic": true,
+      "permissions": [
+        "CAMERA",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ],
+      "backgroundColor": "#05070B"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Scan the pairing code shown by your Zero Forg Agent."
+        }
+      ],
+      "expo-asset"
+    ],
+    "backgroundColor": "#05070B"
+  }
+}
