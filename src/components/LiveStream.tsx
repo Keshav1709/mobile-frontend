@@ -57,13 +57,25 @@ export function LiveStream({ cameraId }: { cameraId: string }) {
   const [mjpegUrl, setMjpegUrl] = useState<string | null>(null);
   const [poster, setPoster] = useState<Poster | null>(null);
   const [headers, setHeaders] = useState<Record<string, string> | null>(null);
+  const [frameToken, setFrameToken] = useState<string | null>(null);
 
-  // Headers a native image request must carry. Refreshed when the org or token changes.
+  /**
+   * What a frame request needs to carry. Refreshed when the org or token changes.
+   *
+   * The token goes in the URL as well as the header, and the URL is the one that
+   * actually does the work: React Native's image loader does not reliably send
+   * `source.headers`, and an unauthenticated request to this endpoint does not
+   * fail — it answers 200 with an SVG placeholder, which `<Image>` cannot render.
+   * The tile then sits empty with nothing logged anywhere. The web console hits
+   * the same endpoint with a token query parameter for its camera player.
+   */
   useEffect(() => {
     let live = true;
     (async () => {
       const token = (await getToken()) ?? idToken;
-      if (live && token) setHeaders(dashboardApi.frameHeaders(token));
+      if (!live || !token) return;
+      setHeaders(dashboardApi.frameHeaders(token));
+      setFrameToken(token);
     })();
     return () => {
       live = false;
@@ -140,6 +152,7 @@ export function LiveStream({ cameraId }: { cameraId: string }) {
       probing={mode === 'probing'}
       poster={poster}
       headers={headers}
+      frameToken={frameToken}
     />
   );
 }
@@ -200,12 +213,14 @@ function FramePlayer({
   probing,
   poster,
   headers,
+  frameToken,
 }: {
   cameraId: string;
   intervalMs: number;
   probing: boolean;
   poster: Poster | null;
   headers: Record<string, string> | null;
+  frameToken: string | null;
 }) {
   const { color } = useTheme();
   const { orgId } = useConsole();
@@ -234,7 +249,7 @@ function FramePlayer({
 
     const tick = () => {
       if (!active.current) return;
-      setBack(dashboardApi.frameUrl(cameraId));
+      setBack(dashboardApi.frameUrl(cameraId, frameToken));
     };
     tick();
     const timer = setInterval(tick, intervalMs);
@@ -246,7 +261,7 @@ function FramePlayer({
       clearInterval(timer);
       sub.remove();
     };
-  }, [cameraId, intervalMs, headers, orgId]);
+  }, [cameraId, intervalMs, headers, frameToken, orgId]);
 
   const loaded = (url: string) => {
     fails.current = 0;

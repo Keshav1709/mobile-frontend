@@ -11,6 +11,7 @@ import {
 
 import { agentApi, AgentApi, AgentInfo } from '@/agent/client';
 import { findAgent } from '@/agent/locate';
+import { resolveRelayUrl, setRelayUrl } from '@/onvif/relay';
 
 const AGENT_KEY = 'zeroforg.agent_url';
 
@@ -18,6 +19,11 @@ type AgentValue = {
   /** Null when no agent is on the network; the app then does the work itself. */
   api: AgentApi | null;
   info: AgentInfo | null;
+  /**
+   * The go2rtc relay on this agent's box, as reachable from this phone, or ''
+   * when there is none. Screens that offer LAN video gate on it being set.
+   */
+  relayUrl: string;
   /** False while the first search is still running. */
   ready: boolean;
   searching: boolean;
@@ -57,15 +63,27 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     refresh();
   }, [refresh]);
 
+  /**
+   * The relay travels two ways on purpose: through the context for screens that
+   * decide whether to offer LAN video at all, and into the relay module itself,
+   * whose publish/unpublish calls happen outside React during onboarding.
+   */
+  const relayUrl = useMemo(() => resolveRelayUrl(info), [info]);
+
+  useEffect(() => {
+    setRelayUrl(relayUrl);
+  }, [relayUrl]);
+
   const value = useMemo<AgentValue>(
     () => ({
       api: info ? agentApi(info.agent_url) : null,
       info,
+      relayUrl,
       ready,
       searching,
       refresh,
     }),
-    [info, ready, searching, refresh],
+    [info, relayUrl, ready, searching, refresh],
   );
 
   return <AgentContext.Provider value={value}>{children}</AgentContext.Provider>;

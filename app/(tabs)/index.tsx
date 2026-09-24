@@ -4,7 +4,6 @@ import { RefreshControl, StyleSheet, Text, View } from 'react-native';
 
 import { Banner } from '@/components/Banner';
 import { Button } from '@/components/Button';
-import { CameraThumb } from '@/components/CameraThumb';
 import { Card } from '@/components/Card';
 import { EmptyState } from '@/components/EmptyState';
 import { SkeletonCard } from '@/components/Skeleton';
@@ -91,8 +90,8 @@ export default function Home() {
 
       {status === 'loading' ? (
         <>
-          <SkeletonCard lines={3} media />
-          <SkeletonCard lines={3} media />
+          <SkeletonCard lines={1} />
+          <SkeletonCard lines={1} />
         </>
       ) : null}
 
@@ -124,7 +123,6 @@ export default function Home() {
             tint={live ? hue.jade : undefined}
             onPress={() => open(camera.camera_id)}
           >
-            <CameraThumb cameraId={camera.camera_id} online={live} />
             <View style={styles.cardTop}>
               <Text
                 numberOfLines={1}
@@ -132,20 +130,8 @@ export default function Home() {
               >
                 {camera.display_name}
               </Text>
-              <Pill
-                label={live ? 'Live' : 'No stream'}
-                tone={live ? 'live' : 'idle'}
-                dot
-              />
+              <Pill label={live ? 'Live' : 'No stream'} tone={live ? 'live' : 'idle'} dot />
             </View>
-            <Text style={[font.caption, { color: color.textMuted }]}>
-              {[camera.manufacturer, camera.model, camera.ip].filter(Boolean).join(' · ')}
-            </Text>
-            {camera.resolution ? (
-              <Text style={[font.mono, styles.spec, { color: color.textFaint }]}>
-                {camera.resolution}
-              </Text>
-            ) : null}
           </Card>
         );
       })}
@@ -170,5 +156,4 @@ const styles = StyleSheet.create({
     gap: space.md,
   },
   cardTitle: { flex: 1 },
-  spec: { fontSize: 12 },
 });

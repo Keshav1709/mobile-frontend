@@ -20,7 +20,8 @@ import {
   labelZone,
   newZone,
 } from '@/lib/zones';
-import { frameUrl, relayConfigured, streamNames } from '@/onvif/relay';
+import { frameUrl, streamNames } from '@/onvif/relay';
+import { useAgent } from '@/state/agent';
 import { useAuth } from '@/state/auth';
 import { useTheme } from '@/state/theme';
 import { useToast } from '@/state/toast';
@@ -35,6 +36,7 @@ export default function ZoneEditor() {
   const { cameraId } = useLocalSearchParams<{ cameraId: string }>();
   const { color } = useTheme();
   const { user, idToken, readOnly } = useAuth();
+  const { relayUrl } = useAgent();
   const toast = useToast();
 
   const [cameras, setCameras] = useState<Camera[]>([]);
@@ -55,10 +57,10 @@ export default function ZoneEditor() {
   );
   const imageUrl = useMemo(
     () =>
-      relayConfigured && camera?.stream_reference
+      relayUrl && camera?.stream_reference
         ? frameUrl(streamNames(camera.camera_id).preview)
         : null,
-    [camera],
+    [camera, relayUrl],
   );
 
   const load = useCallback(async () => {

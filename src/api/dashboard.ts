@@ -469,10 +469,19 @@ export const dashboardApi = {
   //             (manifest.live.go2rtc), a short-lived signed MJPEG URL plus a matching
   //             single-frame URL. 409 everywhere else; callers fall back to frames.
 
-  /** Absolute URL of the camera's newest JPEG; cache-busted so each poll is a new fetch. */
-  frameUrl: (cameraId: string) => `${DASHBOARD_URL}/vms/cameras/${cameraId}/stream?t=${Date.now()}`,
+  /**
+   * Absolute URL of the camera's newest JPEG; cache-busted so each poll is a new fetch.
+   *
+   * The token rides on the URL because a native image loader cannot be relied on to
+   * send `source.headers`, and this endpoint answers an unauthenticated request with
+   * 200 and an SVG placeholder rather than a 401 — so a dropped header looks exactly
+   * like a camera with no picture. The web console's camera player does the same.
+   */
+  frameUrl: (cameraId: string, idToken?: string | null) =>
+    `${DASHBOARD_URL}/vms/cameras/${cameraId}/stream?t=${Date.now()}` +
+    (idToken ? `&token=${encodeURIComponent(idToken)}` : ''),
 
-  /** Headers a native image loader must send for `frameUrl`. */
+  /** Headers a native image loader should send for `frameUrl`, where it honours them. */
   frameHeaders: (idToken: string) => headers(idToken),
 
   /** Signed MJPEG + frame URLs, or null when this site has no go2rtc. */

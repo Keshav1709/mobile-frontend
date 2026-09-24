@@ -18,7 +18,7 @@ import { Screen } from '@/components/Screen';
 import type { Direction } from '@/onvif/ptz';
 import type { Credentials } from '@/onvif/soap';
 import { move, stop } from '@/onvif/ptz';
-import { livePlayerUrl, relayConfigured, streamNames, unpublishStream } from '@/onvif/relay';
+import { livePlayerUrl, streamNames, unpublishStream } from '@/onvif/relay';
 import { haptic } from '@/lib/haptics';
 import { agoLabel } from '@/lib/cache';
 import { useAgent } from '@/state/agent';
@@ -31,7 +31,7 @@ import { font, radius, space } from '@/theme';
 
 export default function Live() {
   const { readOnly } = useAuth();
-  const { api: agent, info: agentInfo } = useAgent();
+  const { api: agent, info: agentInfo, relayUrl } = useAgent();
   const { color } = useTheme();
   const toast = useToast();
   const {
@@ -63,7 +63,7 @@ export default function Live() {
   // On the site's own network with the box relaying this camera, the phone can play
   // the relay's WebRTC stream directly; everywhere else the picture comes through the
   // dashboard (see LiveStream), exactly as the web console shows it.
-  const lan = relayConfigured && !!camera?.stream_reference;
+  const lan = Boolean(relayUrl) && !!camera?.stream_reference;
 
   /** Reads the keychain once per camera rather than on every press. */
   const credentialsFor = async (id: string) => {
@@ -222,7 +222,7 @@ export default function Live() {
           <WebView
             key={`${camera.camera_id}-${hd ? 'hd' : 'preview'}`}
             source={{
-              uri: livePlayerUrl(hd ? streams.high : streams.preview),
+              uri: livePlayerUrl(hd ? streams.high : streams.preview) ?? '',
             }}
             allowsInlineMediaPlayback
             mediaPlaybackRequiresUserAction={false}
