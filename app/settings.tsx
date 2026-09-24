@@ -6,6 +6,7 @@ import { ChipGroup } from '@/components/ChipGroup';
 import { ListGroup, ListRow } from '@/components/ListRow';
 import { Screen } from '@/components/Screen';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { cacheAvailable } from '@/lib/cache';
 import { confirmSignOut, goBack } from '@/lib/helpers';
 import { useAuth } from '@/state/auth';
 import { useNotifications } from '@/state/notifications';
@@ -84,6 +85,19 @@ export default function Settings() {
             value={`${token.slice(0, 12)}…${token.slice(-6)}`}
           />
         ) : null}
+      </ListGroup>
+
+      <ListGroup title="This app">
+        <ListRow
+          icon="cloud"
+          label="Offline memory"
+          value={cacheAvailable() ? 'On' : 'Unavailable'}
+          hint={
+            cacheAvailable()
+              ? 'Your cameras and their last pictures are kept on this phone, so the app opens with something to show.'
+              : 'This build cannot save anything between launches, so every screen starts empty. Reinstall the latest build to fix it.'
+          }
+        />
       </ListGroup>
 
       <ListGroup title="Workspace">
