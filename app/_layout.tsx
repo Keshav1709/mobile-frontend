@@ -12,6 +12,7 @@ import { CamerasProvider } from '@/state/cameras';
 import { ConsoleProvider } from '@/state/console';
 import { LiveProvider } from '@/state/live';
 import { MenuProvider } from '@/state/menu';
+import { NotificationsProvider } from '@/state/notifications';
 import { OnboardingProvider } from '@/state/onboarding';
 import { ThemeProvider, useTheme } from '@/state/theme';
 import { ToastProvider } from '@/state/toast';
@@ -44,17 +45,19 @@ export default function RootLayout() {
         <AuthProvider>
           <ConsoleProvider>
             <CamerasProvider>
-              <LiveProvider>
-                <AgentProvider>
-                  <OnboardingProvider>
-                    <ToastProvider>
-                      <MenuProvider>
-                        <Shell />
-                      </MenuProvider>
-                    </ToastProvider>
-                  </OnboardingProvider>
-                </AgentProvider>
-              </LiveProvider>
+              <NotificationsProvider>
+                <LiveProvider>
+                  <AgentProvider>
+                    <OnboardingProvider>
+                      <ToastProvider>
+                        <MenuProvider>
+                          <Shell />
+                        </MenuProvider>
+                      </ToastProvider>
+                    </OnboardingProvider>
+                  </AgentProvider>
+                </LiveProvider>
+              </NotificationsProvider>
             </CamerasProvider>
           </ConsoleProvider>
         </AuthProvider>

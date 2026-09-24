@@ -8,6 +8,7 @@ import { Screen } from '@/components/Screen';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { confirmSignOut, goBack } from '@/lib/helpers';
 import { useAuth } from '@/state/auth';
+import { useNotifications } from '@/state/notifications';
 import { ThemeMode, useTheme } from '@/state/theme';
 import { space } from '@/theme';
 
@@ -27,6 +28,16 @@ const PROVIDER: Record<string, string> = {
 export default function Settings() {
   const { user, signOut } = useAuth();
   const { mode, setMode } = useTheme();
+  const { permission, token, tokenKind, request } = useNotifications();
+
+  const alertsState =
+    permission === 'granted'
+      ? token
+        ? 'On'
+        : 'On, no token yet'
+      : permission === 'denied'
+        ? 'Off'
+        : 'Not set up';
 
   return (
     <Screen
@@ -52,6 +63,27 @@ export default function Settings() {
         <ListRow icon="box" label="ZeroForg Box" hint="Bind a box and check its connection" onPress={() => router.push('/box')} />
         <ListRow icon="areas" label="Camera areas" hint="Outline what matters on each camera" onPress={() => router.push('/zones')} />
         <ListRow icon="cameras" label="Add a camera" onPress={() => router.push('/onboarding')} />
+      </ListGroup>
+
+      <ListGroup title="Alerts">
+        <ListRow
+          icon="alerts"
+          label="Alerts on this phone"
+          value={alertsState}
+          hint={
+            permission === 'denied'
+              ? 'Turn notifications on for Zero Forg in your phone settings to get alerts when the app is closed.'
+              : 'Camera alerts arrive even when the app is closed.'
+          }
+          onPress={permission === 'granted' ? undefined : () => void request()}
+        />
+        {/* Read during backend bring-up: nothing sends to this device yet. */}
+        {token ? (
+          <ListRow
+            label={`Device token (${tokenKind})`}
+            value={`${token.slice(0, 12)}…${token.slice(-6)}`}
+          />
+        ) : null}
       </ListGroup>
 
       <ListGroup title="Workspace">
