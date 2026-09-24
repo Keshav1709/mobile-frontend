@@ -20,6 +20,7 @@ import { fetchManifest } from '@/api/console';
 import { RequestError } from '@/api/errors';
 import { firebaseAuth, firebaseEnabled, googleClientIds } from '@/api/firebase';
 import { UserProfile } from '@/api/types';
+import { cacheKey, clearCache, readCache, writeCache } from '@/lib/cache';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -57,6 +58,13 @@ type AuthValue = {
    * rather than offer buttons whose only outcome is a refusal.
    */
   readOnly: boolean;
+  /**
+   * A stored session could not be restored because nothing could be reached,
+   * and there was no cached profile to fall back on. The token has been kept,
+   * so the next launch with a network signs the person straight back in. The
+   * sign-in screen says so rather than letting it look like a lost account.
+   */
+  offlineHold: boolean;
   /** Google sign-in can be offered: Firebase plus a native OAuth client id, or development mode. */
   googleAvailable: boolean;
   googleReady: boolean;
@@ -90,6 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // control that then fails is worse than briefly hiding one that works.
   const [readOnly, setReadOnly] = useState(true);
   const [registryOffline, setRegistryOffline] = useState(false);
+  const [offlineHold, setOfflineHold] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -140,22 +149,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const establish = useCallback(async (token: string) => {
     const profile = await profileFor(token, false);
     await SecureStore.setItemAsync(TOKEN_KEY, token);
+    void writeCache(cacheKey.profile, profile);
     setIdToken(token);
     setUser(profile);
+    setOfflineHold(false);
     setStatus('signedIn');
   }, [profileFor]);
 
-  // Restore a previous session, dropping it if the registry no longer accepts it.
+  /**
+   * Restore a previous session.
+   *
+   * The distinction that matters here is between a service that REFUSED this
+   * token and a service that could not be REACHED. A refusal is a real answer
+   * and the session is over. Being unreachable is not an answer at all, and
+   * the token is very probably still good: this is a phone on factory wifi,
+   * and dropping the session every time the link is bad is how someone ends up
+   * retyping a password at the one moment they need to see a camera.
+   *
+   * So an unreachable service falls back to the last profile this device
+   * cached, and the token is kept either way.
+   */
   useEffect(() => {
     (async () => {
       const stored = await SecureStore.getItemAsync(TOKEN_KEY);
       if (!stored) return setStatus('signedOut');
       try {
-        setUser(await profileFor(stored, true));
+        const profile = await profileFor(stored, true);
+        void writeCache(cacheKey.profile, profile);
+        setUser(profile);
         setIdToken(stored);
+        setOfflineHold(false);
         setStatus('signedIn');
-      } catch {
-        await SecureStore.deleteItemAsync(TOKEN_KEY);
+      } catch (cause) {
+        const unreachable =
+          cause instanceof RequestError && TRANSPORT_FAILURES.has(cause.code);
+        if (!unreachable) {
+          await SecureStore.deleteItemAsync(TOKEN_KEY);
+          await clearCache();
+          setStatus('signedOut');
+          return;
+        }
+        const cached = await readCache<UserProfile>(cacheKey.profile);
+        if (cached) {
+          setUser(cached.data);
+          setIdToken(stored);
+          setRegistryOffline(true);
+          setStatus('signedIn');
+          return;
+        }
+        // Nothing cached, so this device has never completed a sign-in while
+        // online. The token stays put for the next launch that has a network.
+        setOfflineHold(true);
         setStatus('signedOut');
       }
     })();
@@ -199,7 +243,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshUser = useCallback(async () => {
     if (!idToken) return;
-    setUser(await profileFor(idToken, true));
+    const profile = await profileFor(idToken, true);
+    void writeCache(cacheKey.profile, profile);
+    setUser(profile);
   }, [idToken, profileFor]);
 
   const settleGoogle = useCallback((error?: Error) => {
@@ -257,7 +303,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   /** Signs out and returns to the sign-in screen. */
   const signOut = useCallback(async () => {
     await SecureStore.deleteItemAsync(TOKEN_KEY);
+    // Everything cached belongs to the account that is leaving.
+    await clearCache();
     setIdToken(null);
+    setOfflineHold(false);
     setUser(null);
     setStatus('signedOut');
     router.replace('/sign-in');
@@ -271,6 +320,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       developmentMode: !firebaseEnabled,
       registryOffline,
       readOnly,
+      offlineHold,
       googleAvailable: !firebaseEnabled || googleConfigured,
       googleReady: !firebaseEnabled || (googleConfigured && !!googlePrompt),
       getToken,
@@ -285,6 +335,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       idToken,
       registryOffline,
       readOnly,
+      offlineHold,
       googlePrompt,
       getToken,
       refreshUser,

@@ -35,7 +35,8 @@ type Busy = 'email' | 'google' | null;
  * There is no sign-up here: the app and the dashboard share one user base.
  */
 export default function SignIn() {
-  const { signInWithEmail, signInWithGoogle, googleAvailable, googleReady, developmentMode } = useAuth();
+  const { signInWithEmail, signInWithGoogle, googleAvailable, googleReady, developmentMode, offlineHold } =
+    useAuth();
   const { color } = useTheme();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -104,6 +105,14 @@ export default function SignIn() {
 
             <View style={styles.panel}>
               {error ? <Banner tone="error" title="Couldn't sign in" message={error} /> : null}
+
+              {!error && offlineHold ? (
+                <Banner
+                  tone="info"
+                  title="You are still signed in"
+                  message="We just couldn't reach the service to confirm it. Once this phone is back on a network, opening the app will take you straight to your cameras."
+                />
+              ) : null}
 
               <TextField
                 label="Email"

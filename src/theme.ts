@@ -4,51 +4,65 @@
  * Two palettes with identical shape, so components read one set of names and
  * the active scheme decides the values. Layout tokens are scheme-independent.
  *
- * The colours are the ZeroForg dashboard's, so the phone and the web app read
- * as one product: gold `#D5AD34` on an anthracite ground, with umber `#7A5738`
- * as the secondary. They are lifted straight from the dashboard's CSS
- * variables (`zeroforg-frontend/src/app/globals.css`) rather than approximated,
- * so a change there can be mirrored here by converting the HSL values.
+ * COLOUR IS NOT AUTHORED HERE. Every value below is the ZeroForg dashboard's
+ * own, so the phone and the web app read as one product. Two sources, in
+ * order of authority:
  *
- * The light scheme takes one liberty, deliberately: it is built to glow. Cards
- * are pure white lifted off a warm off-white ground and the bloom behind them
- * is a near-white gold rather than a tint of the accent, which is what gives
- * the light theme its luminous, neon-white feel. Gold at full strength is too
- * pale to read as text on white, so `accent` deepens for type and lines while
- * `accentBright` keeps the dashboard's exact gold for fills and glows.
+ *  1. `zeroforg-frontend/src/lib/zero-forge/tokens/scheme.scss` — the raw
+ *     brand scales, and the only place the brand hexes are exact:
+ *       gold   `--scheme-gold-600`       #D4AF37   (enterprise accent)
+ *       umber  `--scheme-umber-500`      #7A5938   (enterprise brand)
+ *       anthracite `--scheme-anthracite-*`          (enterprise neutral)
+ *  2. `zeroforg-frontend/src/app/globals.css` — the shadcn layer, in HSL.
+ *     Its grounds, surfaces, borders and semantics are converted to hex here
+ *     one-for-one. Note its `--primary`/`--secondary` are HSL *roundings* of
+ *     the two brand hexes (they land on #D5AD34 / #7A5738); the scheme.scss
+ *     values above win, per DESIGN_SYSTEM.md.
+ *
+ * A change on the dashboard is mirrored here by redoing that conversion.
+ *
+ * The one deviation, and it is forced: the dashboard uses gold, jade and red
+ * as FILLS behind dark or white text, while this app uses the same tokens as
+ * TYPE — a pill's label, a row's value, an icon. Pure gold on white is 2.1:1.
+ * So in the light scheme `accent`, `success` and `danger` keep the dashboard's
+ * exact hue and saturation but drop in lightness until they clear 4.5:1 on
+ * white; `accentBright` / `*Soft` carry the dashboard's untouched colours for
+ * fills, glows and bars, where contrast is not at stake.
  */
 
 export type Scheme = 'light' | 'dark';
 
 const dark = {
-  base: '#0C0D0D',
-  surface: '#141514',
-  surfaceRaised: '#222524',
-  surfaceSunken: '#090A0A',
-  border: '#272A29',
-  borderStrong: '#3A3E3C',
+  base: '#0C0D0D', // --background 150 5% 5%
+  surface: '#141514', // --card 150 4% 8%
+  surfaceRaised: '#222524', // --accent 150 4% 14%
+  surfaceSunken: '#090A0A', // one step under the ground; no dashboard analogue
+  border: '#272A29', // --border 150 4% 16%
+  borderStrong: '#3D4140', // --scheme-anthracite-400
 
-  text: '#F6F5F4',
-  textMuted: '#9E9B94',
-  textFaint: '#6B6F6C',
+  text: '#F6F5F4', // --foreground 40 10% 96%
+  textMuted: '#9E9B94', // --muted-foreground 40 5% 60%
+  textFaint: '#6D7372', // --scheme-anthracite-600
 
-  accent: '#D5AD34',
-  accentBright: '#E6C45C',
+  accent: '#D4AF37', // --scheme-gold-600
+  accentBright: '#E5C44A', // --scheme-gold-700
   /** Umber: the dashboard's secondary, used where gold would shout. */
-  accentDeep: '#7A5738',
-  accentSoft: 'rgba(213, 173, 52, 0.16)',
-  accentLine: 'rgba(230, 196, 92, 0.38)',
+  accentDeep: '#7A5938', // --scheme-umber-500
+  accentSoft: 'rgba(212, 175, 55, 0.16)', // gold-600 @ 16%
+  accentLine: 'rgba(229, 196, 74, 0.38)', // gold-700 @ 38%
 
-  success: '#1FAD7E',
+  success: '#1FAD7E', // --success 160 70% 40%
   successSoft: 'rgba(31, 173, 126, 0.14)',
-  danger: '#DC2828',
+  danger: '#DC2828', // --destructive 0 72% 51%
   dangerSoft: 'rgba(220, 40, 40, 0.14)',
+  warning: '#F97415', // --warning 25 95% 53%
+  warningSoft: 'rgba(249, 116, 21, 0.14)',
 
   glass: 'rgba(255, 255, 255, 0.06)',
   glassBorder: 'rgba(255, 255, 255, 0.14)',
 
-  /** The bloom behind content: gold on the dark ground. */
-  glow: '#D5AD34',
+  /** The bloom behind content: gold on the dark ground, as `.dark body::before`. */
+  glow: '#D4AF37',
   glowStrength: 0.5,
 
   white: '#FFFFFF',
@@ -58,40 +72,37 @@ const dark = {
 export type Palette = typeof dark;
 
 const light: Palette = {
-  // A shade under the dashboard's #FAFAF9, so pure-white cards and the
-  // white-gold bloom have something to lift off. Without that half-step the
-  // glow lands on near-white and simply disappears.
-  base: '#F6F5F2',
-  surface: '#FFFFFF',
+  base: '#FAFAF9', // --background 40 10% 98%
+  surface: '#FFFFFF', // --card 0 0% 100%
   surfaceRaised: '#FFFFFF',
-  surfaceSunken: '#F1F0EE',
-  border: '#E2E1DF',
-  borderStrong: '#CFCDC9',
+  surfaceSunken: '#F1F0EE', // --muted 40 8% 94%
+  border: '#E2E1DF', // --border 40 6% 88%
+  borderStrong: '#C5C9C8', // --scheme-anthracite-900
 
-  text: '#1E201F',
-  textMuted: '#636966',
-  textFaint: '#6C716D',
+  text: '#1E201F', // --foreground 150 3% 12%
+  textMuted: '#636966', // --muted-foreground 150 3% 40%
+  textFaint: '#8A908F', // --scheme-anthracite-700
 
-  // The dashboard uses gold, jade and red as FILLS behind dark or white text.
-  // This app uses the same tokens as TYPE — a pill's label, a row's value — so
-  // the light scheme carries type-safe versions at 4.5:1 on white, and keeps
-  // the dashboard's exact colours in the *Bright*/*Soft* tokens for fills,
-  // glows and bars where contrast is not at stake.
-  accent: '#886C1C',
-  accentBright: '#D5AD34',
-  accentDeep: '#FBF3DC',
-  accentSoft: 'rgba(213, 173, 52, 0.18)',
-  accentLine: 'rgba(136, 108, 28, 0.34)',
+  accent: '#8E731E', // gold-600's hue/sat, darkened to 4.54:1 on white
+  accentBright: '#D4AF37', // --scheme-gold-600, untouched
+  accentDeep: '#7A5938', // --scheme-umber-500
+  accentSoft: 'rgba(212, 175, 55, 0.18)', // gold-600 @ 18%
+  accentLine: 'rgba(142, 115, 30, 0.34)',
 
-  success: '#0B8059',
-  successSoft: 'rgba(16, 183, 127, 0.16)',
-  danger: '#D42C2C',
-  dangerSoft: 'rgba(239, 67, 67, 0.12)',
+  success: '#0C875E', // --success 160 84% … darkened to 4.52:1 on white
+  successSoft: 'rgba(16, 183, 127, 0.16)', // --success 160 84% 39%, untouched
+  danger: '#EB1616', // --destructive 0 84% … darkened to 4.51:1 on white
+  dangerSoft: 'rgba(239, 67, 67, 0.12)', // --destructive 0 84% 60%, untouched
+  warning: '#F97415', // --warning 25 95% 53%
+  warningSoft: 'rgba(249, 116, 21, 0.14)',
 
   glass: 'rgba(255, 255, 255, 0.78)',
   glassBorder: 'rgba(30, 32, 31, 0.10)',
 
-  /** Neon white: a warm white bloom, brighter than the dark scheme's gold. */
+  /**
+   * The dashboard has no light-mode bloom; this one is the app's own, a warm
+   * white that lifts pure-white cards off the near-white ground.
+   */
   glow: '#FFF6DE',
   glowStrength: 0.95,
 
@@ -102,16 +113,17 @@ const light: Palette = {
 export const palettes = { dark, light };
 
 /**
- * Category hues for tiles and icons, drawn from the dashboard's own family so
- * a stat tile never fights the gold. Identical in both schemes.
+ * Category hues for tiles and icons, taken from the dashboard's own chart
+ * ramp (`--chart-*`, dark) and neutral scale, so a stat tile never fights the
+ * gold. Identical in both schemes.
  */
 export const hue = {
-  gold: '#D5AD34',
-  umber: '#A66F3F',
-  jade: '#22C38E',
-  amber: '#F97415',
-  ember: '#F46325',
-  slate: '#89908C',
+  gold: '#D4AF37', // --scheme-gold-600
+  umber: '#A66F3F', // --chart-2 dark, 28 45% 45%
+  jade: '#22C38E', // --chart-3 dark, 160 70% 45%
+  amber: '#F97415', // --chart-4 / --warning, 25 95% 53%
+  ember: '#F46325', // --chart-5 dark, 18 90% 55%
+  slate: '#8A908F', // --scheme-anthracite-700
 } as const;
 
 export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32, xxxl: 44 } as const;
@@ -196,10 +208,10 @@ export const gradientFor = (scheme: Scheme) => ({
   /** Gold into umber: the product's one saturated move. */
   accent:
     scheme === 'dark'
-      ? (['#E6C45C', '#B07C3A'] as const)
-      : (['#D5AD34', '#8A6128'] as const),
-  mark: ['#E6C45C', '#7A5738'] as const,
+      ? (['#E5C44A', '#9A7652'] as const) // gold-700 -> umber-600
+      : (['#D4AF37', '#5D422C'] as const), // gold-600 -> umber-400
+  mark: ['#E5C44A', '#7A5938'] as const, // gold-700 -> umber-500
   /** Tile washes, warm to cool. */
-  bloom: ['#D5AD34', '#A8764A'] as const,
-  ember: ['#F97415', '#D5AD34'] as const,
+  bloom: ['#D4AF37', '#A66F3F'] as const, // gold-600 -> chart-2
+  ember: ['#F97415', '#D4AF37'] as const, // warning -> gold-600
 });
