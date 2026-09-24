@@ -4,6 +4,7 @@ import { WebView } from 'react-native-webview';
 
 import { dashboardApi } from '@/api/dashboard';
 import { Pill } from '@/components/Pill';
+import { agoLabel, cacheKey, readCache, writeCache } from '@/lib/cache';
 import { useAuth } from '@/state/auth';
 import { useConsole } from '@/state/console';
 import { useTheme } from '@/state/theme';
@@ -11,10 +12,22 @@ import { font, radius, space } from '@/theme';
 
 /** Missed frames before the tile admits it has lost the camera. */
 const FAIL_BEFORE_DOWN = 3;
-/** MJPEG must have painted within this, or the tile falls back to polling frames. */
-const MJPEG_FIRST_PAINT_MS = 8000;
+/**
+ * MJPEG must have painted within this, or the tile falls back to polling frames.
+ *
+ * This was eight seconds, which on a bad site link meant eight seconds of
+ * nothing while a two-second frame was available the whole time. Waiting is
+ * only worth it while it is plausibly about to work.
+ */
+const MJPEG_FIRST_PAINT_MS = 3500;
+
+/** A frame older than this is not worth showing as a placeholder. */
+const POSTER_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
 type Mode = 'probing' | 'mjpeg' | 'frames';
+
+/** The last frame this phone painted for a camera, replayed from the image cache. */
+type Poster = { uri: string; at: number };
 
 /**
  * A camera, live, through the dashboard.
@@ -42,6 +55,44 @@ export function LiveStream({ cameraId }: { cameraId: string }) {
 
   const [mode, setMode] = useState<Mode>(wantsMjpeg ? 'probing' : 'frames');
   const [mjpegUrl, setMjpegUrl] = useState<string | null>(null);
+  const [poster, setPoster] = useState<Poster | null>(null);
+  const [headers, setHeaders] = useState<Record<string, string> | null>(null);
+
+  // Headers a native image request must carry. Refreshed when the org or token changes.
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      const token = (await getToken()) ?? idToken;
+      if (live && token) setHeaders(dashboardApi.frameHeaders(token));
+    })();
+    return () => {
+      live = false;
+    };
+  }, [idToken, getToken, orgId]);
+
+  /**
+   * The last frame this phone successfully painted for this camera, shown the
+   * instant the tile mounts.
+   *
+   * Only the URL is stored. Each poll is cache-busted, so that exact URL is
+   * unique and its bytes are already sitting in the platform image cache from
+   * last time, which is what makes this paint immediately instead of waiting
+   * on a request. A miss costs nothing: the tile falls back to its own
+   * waiting state.
+   */
+  useEffect(() => {
+    let live = true;
+    setPoster(null);
+    (async () => {
+      const cached = await readCache<string>(cacheKey.frame(cameraId));
+      if (!live || !cached) return;
+      if (Date.now() - cached.at > POSTER_MAX_AGE_MS) return;
+      setPoster({ uri: cached.data, at: cached.at });
+    })();
+    return () => {
+      live = false;
+    };
+  }, [cameraId]);
 
   // Which way to play: ask for MJPEG once per camera; 409 (or any refusal) means
   // frames. Re-decided on a centre switch, since go2rtc is per site.
@@ -73,6 +124,8 @@ export function LiveStream({ cameraId }: { cameraId: string }) {
     return (
       <MjpegPlayer
         url={mjpegUrl}
+        poster={poster}
+        headers={headers}
         onFail={() => {
           setMjpegUrl(null);
           setMode('frames');
@@ -80,10 +133,28 @@ export function LiveStream({ cameraId }: { cameraId: string }) {
       />
     );
   }
-  return <FramePlayer cameraId={cameraId} intervalMs={intervalMs} probing={mode === 'probing'} />;
+  return (
+    <FramePlayer
+      cameraId={cameraId}
+      intervalMs={intervalMs}
+      probing={mode === 'probing'}
+      poster={poster}
+      headers={headers}
+    />
+  );
 }
 
-function MjpegPlayer({ url, onFail }: { url: string; onFail: () => void }) {
+function MjpegPlayer({
+  url,
+  poster,
+  headers,
+  onFail,
+}: {
+  url: string;
+  poster: Poster | null;
+  headers: Record<string, string> | null;
+  onFail: () => void;
+}) {
   const { color } = useTheme();
   const [painted, setPainted] = useState(false);
 
@@ -96,6 +167,11 @@ function MjpegPlayer({ url, onFail }: { url: string; onFail: () => void }) {
 
   return (
     <View style={[styles.player, { borderColor: color.border, backgroundColor: color.surfaceSunken }]}>
+      {/* The last frame, under the stream, so the tile is never blank while
+          the picture negotiates. */}
+      {!painted && poster && headers ? (
+        <Image source={{ uri: poster.uri, headers }} style={styles.fill} resizeMode="contain" />
+      ) : null}
       <WebView
         source={{ uri: url }}
         style={styles.fill}
@@ -108,15 +184,30 @@ function MjpegPlayer({ url, onFail }: { url: string; onFail: () => void }) {
         mediaPlaybackRequiresUserAction={false}
       />
       <View style={styles.badge}>
-        <Pill label="Live" tone="live" dot />
+        {painted ? (
+          <Pill label="Live" tone="live" dot />
+        ) : (
+          <Pill label={poster ? `Last frame ${agoLabel(poster.at)}` : 'Connecting'} tone="neutral" />
+        )}
       </View>
     </View>
   );
 }
 
-function FramePlayer({ cameraId, intervalMs, probing }: { cameraId: string; intervalMs: number; probing: boolean }) {
+function FramePlayer({
+  cameraId,
+  intervalMs,
+  probing,
+  poster,
+  headers,
+}: {
+  cameraId: string;
+  intervalMs: number;
+  probing: boolean;
+  poster: Poster | null;
+  headers: Record<string, string> | null;
+}) {
   const { color } = useTheme();
-  const { idToken, getToken } = useAuth();
   const { orgId } = useConsole();
 
   // Double buffer: `front` is what is shown; the next frame loads into `back` and
@@ -124,23 +215,13 @@ function FramePlayer({ cameraId, intervalMs, probing }: { cameraId: string; inte
   // the URL after that, and so on.
   const [front, setFront] = useState<string | null>(null);
   const [back, setBack] = useState<string | null>(null);
-  const [headers, setHeaders] = useState<Record<string, string> | null>(null);
   const [lastAt, setLastAt] = useState<number | null>(null);
   const [down, setDown] = useState(false);
   const fails = useRef(0);
   const active = useRef(true);
 
-  // Headers a native image request must carry. Refreshed when the org or token changes.
-  useEffect(() => {
-    let live = true;
-    (async () => {
-      const token = (await getToken()) ?? idToken;
-      if (live && token) setHeaders(dashboardApi.frameHeaders(token));
-    })();
-    return () => {
-      live = false;
-    };
-  }, [idToken, getToken, orgId]);
+  /** True while what is on screen is the remembered frame, not a live one. */
+  const showingPoster = !front && !!poster;
 
   // Ask for the next frame on a timer, only while the app is on screen.
   useEffect(() => {
@@ -172,17 +253,32 @@ function FramePlayer({ cameraId, intervalMs, probing }: { cameraId: string; inte
     setDown(false);
     setLastAt(Date.now());
     setFront(url);
+    // Remembered for the next time this camera is opened, so the tile has
+    // something to show before the first poll comes back.
+    void writeCache(cacheKey.frame(cameraId), url);
   };
   const failed = () => {
     fails.current += 1;
     if (fails.current >= FAIL_BEFORE_DOWN) setDown(true);
   };
 
-  const status = down ? 'No signal' : probing ? 'Connecting' : front ? 'Live' : 'Loading';
+  const status = down
+    ? 'No signal'
+    : front && !probing
+      ? 'Live'
+      : showingPoster
+        ? `Last frame ${agoLabel(poster.at)}`
+        : probing
+          ? 'Connecting'
+          : 'Loading';
   const tone = down ? 'idle' : front && !probing ? 'live' : 'neutral';
 
   return (
     <View style={[styles.player, { borderColor: color.border, backgroundColor: color.surfaceSunken }]}>
+      {/* The remembered frame holds the tile until a live one decodes over it. */}
+      {showingPoster && headers ? (
+        <Image source={{ uri: poster.uri, headers }} style={styles.fill} resizeMode="contain" />
+      ) : null}
       {front && headers ? (
         <Image source={{ uri: front, headers }} style={styles.fill} resizeMode="contain" />
       ) : null}
@@ -195,16 +291,18 @@ function FramePlayer({ cameraId, intervalMs, probing }: { cameraId: string; inte
           onError={failed}
         />
       ) : null}
-      {!front ? (
+      {!front && !showingPoster ? (
         <View style={styles.centre}>
           <Text style={[font.caption, { color: color.textFaint }]}>
-            {down ? 'The camera has not sent a frame.' : 'Waiting for the first frame…'}
+            {down
+              ? 'This camera has not sent a picture. Still trying.'
+              : 'Waiting for the first frame…'}
           </Text>
         </View>
       ) : null}
       <View style={styles.badge}>
         <Pill label={status} tone={tone} dot={tone === 'live'} />
-        {lastAt && !down ? (
+        {lastAt && !down && front ? (
           <Text style={[font.monoSmall, { color: color.white, opacity: 0.8 }]}>
             every {Math.round(intervalMs / 1000)}s
           </Text>
