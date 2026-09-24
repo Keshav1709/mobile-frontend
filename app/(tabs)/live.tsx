@@ -1,10 +1,9 @@
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { router } from 'expo-router';
+import { useRef, useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 import { cloudApi } from '@/api/cloud';
-import { Camera } from '@/api/types';
 import { Banner } from '@/components/Banner';
 import { BottomSheet } from '@/components/BottomSheet';
 import { Button } from '@/components/Button';
@@ -21,52 +20,39 @@ import type { Credentials } from '@/onvif/soap';
 import { move, stop } from '@/onvif/ptz';
 import { livePlayerUrl, relayConfigured, streamNames, unpublishStream } from '@/onvif/relay';
 import { haptic } from '@/lib/haptics';
-import { errorMessage } from '@/lib/helpers';
+import { agoLabel } from '@/lib/cache';
 import { useAgent } from '@/state/agent';
 import { useAuth } from '@/state/auth';
+import { useCameras } from '@/state/cameras';
 import { forgetCredentials, loadCredentials } from '@/state/cameraCredentials';
 import { useTheme } from '@/state/theme';
 import { useToast } from '@/state/toast';
 import { font, radius, space } from '@/theme';
 
 export default function Live() {
-  const { user, idToken, readOnly } = useAuth();
+  const { readOnly } = useAuth();
   const { api: agent, info: agentInfo } = useAgent();
   const { color } = useTheme();
   const toast = useToast();
+  const {
+    cameras,
+    selected: camera,
+    select,
+    status,
+    error: listError,
+    cachedAt,
+    refresh,
+  } = useCameras();
 
-  const [cameras, setCameras] = useState<Camera[]>([]);
-  const [index, setIndex] = useState(0);
   const [showInfo, setShowInfo] = useState(false);
   const [hd, setHd] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [panning, setPanning] = useState<Direction | null>(null);
   const [removing, setRemoving] = useState(false);
   const ptzSupported = useRef(true);
   const credentials = useRef<{ id: string; value: Credentials | null } | null>(null);
 
-  const load = useCallback(async () => {
-    if (!user || !idToken) return;
-    try {
-      const list = await cloudApi.listCameras(idToken);
-      setCameras(list);
-      setIndex((current) => Math.min(current, Math.max(list.length - 1, 0)));
-      setError(null);
-    } catch (cause) {
-      setError(errorMessage(cause, "Couldn't load cameras."));
-    } finally {
-      setLoading(false);
-    }
-  }, [user, idToken]);
-
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load]),
-  );
-
-  const camera = cameras[index];
+  const loading = status === 'loading';
   // On the site's own network with the box relaying this camera, the phone can play
   // the relay's WebRTC stream directly; everywhere else the picture comes through the
   // dashboard (see LiveStream), exactly as the web console shows it.
@@ -152,7 +138,7 @@ export default function Live() {
     setRemoving(false);
     setShowInfo(false);
     toast.show(`${camera.display_name} disconnected`, 'info');
-    load();
+    void refresh();
   };
 
   if (loading) {
@@ -170,13 +156,13 @@ export default function Live() {
   if (!camera) {
     return (
       <Screen tabBar eyebrow="Live" title="Cameras">
-        {error ? (
+        {listError ? (
           <EmptyState
             tone="error"
             icon="offline"
             title="Couldn't load cameras"
-            hint={error}
-            action={<Button label="Try again" variant="secondary" onPress={load} />}
+            hint={listError}
+            action={<Button label="Try again" variant="secondary" onPress={refresh} />}
           />
         ) : (
           <EmptyState
@@ -200,7 +186,9 @@ export default function Live() {
       tabBar
       eyebrow="Live"
       title={camera.display_name}
-      subtitle={camera.ip ?? undefined}
+      subtitle={
+        cachedAt ? `${camera.ip ?? 'Saved'} · list saved ${agoLabel(cachedAt)}` : camera.ip ?? undefined
+      }
       scroll
       action={
         <IconButton
@@ -213,6 +201,14 @@ export default function Live() {
       }
     >
       {error ? <Banner tone="error" title="Something went wrong" message={error} /> : null}
+
+      {listError && cameras.length ? (
+        <Banner
+          tone="info"
+          title="Showing your saved cameras"
+          message={`${listError} Pull down on Home to try again.`}
+        />
+      ) : null}
 
       {lan ? (
         <View style={[styles.player, { borderColor: color.border }]}>
@@ -339,20 +335,54 @@ export default function Live() {
 
       {cameras.length > 1 ? (
         <View style={styles.switcher}>
-          {cameras.map((item, position) => (
-            <Pressable
-              key={item.camera_id}
-              accessibilityRole="button"
-              accessibilityLabel={item.display_name}
-              onPress={() => setIndex(position)}
-              style={[
-                styles.switchDot,
-                {
-                  backgroundColor: position === index ? color.accent : color.borderStrong,
-                },
-              ]}
-            />
-          ))}
+          <Text style={[font.eyebrow, { color: color.textFaint }]}>Switch camera</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.switcherRow}
+          >
+            {cameras.map((item) => {
+              const current = item.camera_id === camera.camera_id;
+              const online = item.connection_status === 'CONNECTED';
+              return (
+                <Pressable
+                  key={item.camera_id}
+                  accessibilityRole="button"
+                  accessibilityLabel={item.display_name}
+                  accessibilityState={{ selected: current }}
+                  onPress={() => {
+                    if (current) return;
+                    haptic.select();
+                    select(item.camera_id);
+                  }}
+                  style={[
+                    styles.switchChip,
+                    {
+                      backgroundColor: current ? color.accentSoft : color.surface,
+                      borderColor: current ? color.accentLine : color.border,
+                    },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.switchDot,
+                      { backgroundColor: online ? color.success : color.textFaint },
+                    ]}
+                  />
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      font.label,
+                      styles.switchLabel,
+                      { color: current ? color.accent : color.textMuted },
+                    ]}
+                  >
+                    {item.display_name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
         </View>
       ) : null}
     </Screen>
@@ -376,6 +406,20 @@ const styles = StyleSheet.create({
   quality: { flexDirection: 'row', gap: 4, padding: 4, borderRadius: radius.pill, borderWidth: 1 },
   qualityTab: { paddingHorizontal: space.lg, paddingVertical: 7, borderRadius: radius.pill },
   qualityText: { fontSize: 13 },
-  switcher: { flexDirection: 'row', justifyContent: 'center', gap: space.sm, paddingTop: space.sm },
+  switcher: { gap: space.sm, paddingTop: space.sm },
+  switcherRow: { gap: space.sm, paddingVertical: 2 },
+  // 44pt tall, named, and reachable with a thumb: this is the only way to
+  // change camera on this screen, and it used to be an 8px dot.
+  switchChip: {
+    minHeight: 44,
+    maxWidth: 200,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    paddingHorizontal: space.lg,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+  },
   switchDot: { width: 8, height: 8, borderRadius: radius.pill },
+  switchLabel: { fontSize: 13, flexShrink: 1 },
 });

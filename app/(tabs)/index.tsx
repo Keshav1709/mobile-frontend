@@ -1,9 +1,7 @@
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { router } from 'expo-router';
 import { RefreshControl, StyleSheet, Text, View } from 'react-native';
 
-import { cloudApi } from '@/api/cloud';
-import { Camera } from '@/api/types';
+import { Banner } from '@/components/Banner';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { EmptyState } from '@/components/EmptyState';
@@ -11,43 +9,26 @@ import { SkeletonCard } from '@/components/Skeleton';
 import { Pill } from '@/components/Pill';
 import { Screen } from '@/components/Screen';
 import { Tile } from '@/components/Tile';
-import { errorMessage } from '@/lib/helpers';
+import { agoLabel } from '@/lib/cache';
 import { useAgent } from '@/state/agent';
 import { useAuth } from '@/state/auth';
+import { useCameras } from '@/state/cameras';
 import { useTheme } from '@/state/theme';
 import { font, hue, space } from '@/theme';
 
 export default function Home() {
   const { color } = useTheme();
-  const { user, idToken } = useAuth();
+  const { user } = useAuth();
   const { info: agentInfo } = useAgent();
+  const { cameras: list, status, error, cachedAt, refreshing, refresh, select } = useCameras();
 
-  const [cameras, setCameras] = useState<Camera[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-
-  const load = useCallback(async () => {
-    if (!user || !idToken) return;
-    setRefreshing(true);
-    try {
-      setCameras(await cloudApi.listCameras(idToken));
-      setError(null);
-    } catch (cause) {
-      setError(errorMessage(cause, "Couldn't load cameras."));
-    } finally {
-      setRefreshing(false);
-    }
-  }, [user, idToken]);
-
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load]),
-  );
-
-  const list = cameras ?? [];
   // Online = the dashboard has heard from it recently; the same test the web wall uses.
   const streaming = list.filter((camera) => camera.connection_status === 'CONNECTED').length;
+
+  const open = (cameraId: string) => {
+    select(cameraId);
+    router.push('/(tabs)/live');
+  };
 
   return (
     <Screen
@@ -56,7 +37,7 @@ export default function Home() {
       title={`Hi, ${user?.first_name ?? 'there'}`}
       titleSize="display"
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={load} tintColor={color.textMuted} />
+        <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={color.textMuted} />
       }
     >
       <View style={styles.bento}>
@@ -70,8 +51,8 @@ export default function Home() {
           <Pill label={agentInfo ? 'Local agent' : 'Discovery'} tone="accent" />
         </Tile>
         <View style={styles.column}>
-          <Tile title={`${list.length}`} caption="Connected" numeric tint={hue.slate}>
-            <Text style={[font.eyebrow, { color: color.textFaint }]}>Cameras</Text>
+          <Tile title={`${list.length}`} caption="Cameras" numeric tint={hue.slate}>
+            <Text style={[font.eyebrow, { color: color.textFaint }]}>On this account</Text>
           </Tile>
           <Tile title={`${streaming}`} caption="Online now" numeric tint={hue.amber}>
             <Pill
@@ -85,27 +66,37 @@ export default function Home() {
 
       <View style={styles.listHeader}>
         <Text style={[font.heading, { color: color.text }]}>Your cameras</Text>
-        <Text style={[font.caption, { color: color.textMuted }]}>Pull to refresh</Text>
+        <Text style={[font.caption, { color: color.textMuted }]}>
+          {cachedAt ? `Saved ${agoLabel(cachedAt)}` : 'Pull to refresh'}
+        </Text>
       </View>
 
-      {cameras === null && !error ? (
+      {status === 'ready' && error && list.length ? (
+        <Banner
+          tone="info"
+          title="Showing your saved cameras"
+          message={`${error} These are the cameras this phone last saw.`}
+        />
+      ) : null}
+
+      {status === 'loading' ? (
         <>
           <SkeletonCard lines={3} />
           <SkeletonCard lines={3} />
         </>
       ) : null}
 
-      {error ? (
+      {status === 'error' ? (
         <EmptyState
           tone="error"
           icon="offline"
           title="Couldn't load cameras"
-          hint={error}
-          action={<Button label="Try again" variant="secondary" onPress={load} />}
+          hint={error ?? undefined}
+          action={<Button label="Try again" variant="secondary" onPress={refresh} />}
         />
       ) : null}
 
-      {!error && cameras && cameras.length === 0 ? (
+      {status === 'ready' && list.length === 0 ? (
         <EmptyState
           icon="camera"
           title="Nothing connected yet"
@@ -121,7 +112,7 @@ export default function Home() {
             key={camera.camera_id}
             glow={live}
             tint={live ? hue.jade : undefined}
-            onPress={() => router.push('/(tabs)/live')}
+            onPress={() => open(camera.camera_id)}
           >
             <View style={styles.cardTop}>
               <Text

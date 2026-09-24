@@ -8,6 +8,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { AgentProvider } from '@/state/agent';
 import { AuthProvider } from '@/state/auth';
+import { CamerasProvider } from '@/state/cameras';
 import { ConsoleProvider } from '@/state/console';
 import { LiveProvider } from '@/state/live';
 import { MenuProvider } from '@/state/menu';
@@ -42,17 +43,19 @@ export default function RootLayout() {
       <ThemeProvider>
         <AuthProvider>
           <ConsoleProvider>
-            <LiveProvider>
-              <AgentProvider>
-                <OnboardingProvider>
-                  <ToastProvider>
-                    <MenuProvider>
-                      <Shell />
-                    </MenuProvider>
-                  </ToastProvider>
-                </OnboardingProvider>
-              </AgentProvider>
-            </LiveProvider>
+            <CamerasProvider>
+              <LiveProvider>
+                <AgentProvider>
+                  <OnboardingProvider>
+                    <ToastProvider>
+                      <MenuProvider>
+                        <Shell />
+                      </MenuProvider>
+                    </ToastProvider>
+                  </OnboardingProvider>
+                </AgentProvider>
+              </LiveProvider>
+            </CamerasProvider>
           </ConsoleProvider>
         </AuthProvider>
       </ThemeProvider>
