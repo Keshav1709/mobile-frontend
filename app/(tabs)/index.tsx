@@ -3,6 +3,7 @@ import { RefreshControl, StyleSheet, Text, View } from 'react-native';
 
 import { Banner } from '@/components/Banner';
 import { Button } from '@/components/Button';
+import { CameraThumb } from '@/components/CameraThumb';
 import { Card } from '@/components/Card';
 import { EmptyState } from '@/components/EmptyState';
 import { SkeletonCard } from '@/components/Skeleton';
@@ -81,8 +82,8 @@ export default function Home() {
 
       {status === 'loading' ? (
         <>
-          <SkeletonCard lines={3} />
-          <SkeletonCard lines={3} />
+          <SkeletonCard lines={3} media />
+          <SkeletonCard lines={3} media />
         </>
       ) : null}
 
@@ -114,6 +115,7 @@ export default function Home() {
             tint={live ? hue.jade : undefined}
             onPress={() => open(camera.camera_id)}
           >
+            <CameraThumb cameraId={camera.camera_id} online={live} />
             <View style={styles.cardTop}>
               <Text
                 numberOfLines={1}

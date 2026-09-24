@@ -32,11 +32,18 @@ export function Skeleton({ width, height = 16, style }: { width?: number | `${nu
   );
 }
 
-/** A card-shaped skeleton: title line, caption line. */
-export function SkeletonCard({ lines = 2 }: { lines?: number }) {
+/**
+ * A card-shaped skeleton: title line, caption lines, and optionally the 16:9
+ * block where a camera's picture goes.
+ *
+ * `media` matters: a placeholder is only useful if the content lands in the
+ * same place it did, otherwise the list jumps the moment it loads.
+ */
+export function SkeletonCard({ lines = 2, media }: { lines?: number; media?: boolean }) {
   const { color } = useTheme();
   return (
     <View style={[styles.card, { backgroundColor: color.surface, borderColor: color.border }]}>
+      {media ? <Skeleton height={0} style={styles.media} /> : null}
       <Skeleton width="60%" height={18} />
       {Array.from({ length: lines - 1 }, (_, index) => (
         <Skeleton key={index} width={index % 2 ? '35%' : '80%'} height={12} />
@@ -48,4 +55,5 @@ export function SkeletonCard({ lines = 2 }: { lines?: number }) {
 const styles = StyleSheet.create({
   block: { borderRadius: radius.sm, overflow: 'hidden' },
   card: { borderWidth: 1, borderRadius: radius.xl, padding: space.lg, gap: space.sm },
+  media: { width: '100%', aspectRatio: 16 / 9, borderRadius: radius.md },
 });
