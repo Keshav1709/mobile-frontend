@@ -57,6 +57,17 @@ const dark = {
   dangerSoft: 'rgba(220, 40, 40, 0.14)',
   warning: '#F97415', // --warning 25 95% 53%
   warningSoft: 'rgba(249, 116, 21, 0.14)',
+  /**
+   * Severity as TYPE, on that severity's own soft background.
+   *
+   * A severity badge is the one place where the label and its backdrop are
+   * both tinted the same hue, which is where a fill colour stops being
+   * legible. Same hue and saturation as the token above, lightness moved
+   * until it clears 4.5:1 on the pill it sits in. An operator has to read
+   * "critical" across a dim floor.
+   */
+  dangerText: '#E45656', // 0 72%, 4.54:1 on the danger pill
+  warningText: '#F97415', // already 5.44:1 on the warning pill
 
   glass: 'rgba(255, 255, 255, 0.06)',
   glassBorder: 'rgba(255, 255, 255, 0.14)',
@@ -95,6 +106,8 @@ const light: Palette = {
   dangerSoft: 'rgba(239, 67, 67, 0.12)', // --destructive 0 84% 60%, untouched
   warning: '#F97415', // --warning 25 95% 53%
   warningSoft: 'rgba(249, 116, 21, 0.14)',
+  dangerText: '#D21212', // 0 84%, 4.50:1 on the danger pill
+  warningText: '#B54E05', // 25 95%, 4.50:1 on the warning pill
 
   glass: 'rgba(255, 255, 255, 0.78)',
   glassBorder: 'rgba(30, 32, 31, 0.10)',

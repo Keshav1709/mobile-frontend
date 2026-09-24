@@ -9,7 +9,7 @@ import { family, font, radius, space } from '@/theme';
 
 type Props = {
   label: string;
-  tone?: 'neutral' | 'accent' | 'live' | 'idle';
+  tone?: 'neutral' | 'accent' | 'live' | 'idle' | 'warning' | 'danger';
   dot?: boolean;
   /** Overrides the tone with a category hue. */
   tint?: string;
@@ -25,6 +25,8 @@ export function Pill({ label, tone = 'neutral', dot, tint, icon }: Props) {
     accent: { bg: color.accentSoft, fg: color.accent },
     live: { bg: color.successSoft, fg: color.success },
     idle: { bg: color.surfaceRaised, fg: color.textFaint },
+    warning: { bg: color.warningSoft, fg: color.warningText },
+    danger: { bg: color.dangerSoft, fg: color.dangerText },
   }[tone];
 
   const foreground = tint ?? palette.fg;

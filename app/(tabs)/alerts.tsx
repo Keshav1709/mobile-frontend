@@ -1,21 +1,25 @@
+import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 
 import { dashboardApi } from '@/api/dashboard';
 import { Alert } from '@/api/types';
 import { Banner } from '@/components/Banner';
 import { ChipGroup } from '@/components/ChipGroup';
 import { EmptyState } from '@/components/EmptyState';
+import { Icon } from '@/components/Icon';
 import { ListGroup, ListRow } from '@/components/ListRow';
 import { Pill } from '@/components/Pill';
 import { Screen } from '@/components/Screen';
 import { SkeletonCard } from '@/components/Skeleton';
+import { haptic } from '@/lib/haptics';
 import { errorMessage } from '@/lib/helpers';
 import { useAuth } from '@/state/auth';
+import { useCameras } from '@/state/cameras';
 import { useConsole } from '@/state/console';
 import { useLive } from '@/state/live';
 import { useTheme } from '@/state/theme';
-import { font, space } from '@/theme';
+import { font, radius, space } from '@/theme';
 
 type Status = 'active' | 'acknowledged' | 'history';
 
@@ -38,9 +42,17 @@ function when(raw: string | null): string {
   });
 }
 
-function severityTone(severity: string | null): 'live' | 'accent' | 'neutral' {
-  if (severity === 'critical' || severity === 'high') return 'live';
-  if (severity === 'medium') return 'accent';
+/**
+ * Severity, in colour.
+ *
+ * This used to hand critical and high to the "live" tone, which is the green
+ * used for a healthy stream, so the most urgent alert on the board was also
+ * the most reassuring thing on it. Red for the ones that need someone now,
+ * orange for the middle, grey for the rest.
+ */
+function severityTone(severity: string | null): 'danger' | 'warning' | 'neutral' {
+  if (severity === 'critical' || severity === 'high') return 'danger';
+  if (severity === 'medium') return 'warning';
   return 'neutral';
 }
 
@@ -58,6 +70,7 @@ export default function Alerts() {
   const { idToken } = useAuth();
   const { can, orgId, siteId, status: consoleStatus } = useConsole();
   const live = useLive();
+  const { cameras, select } = useCameras();
   const [filter, setFilter] = useState<Status>('active');
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [activeCount, setActiveCount] = useState(0);
@@ -106,19 +119,46 @@ export default function Alerts() {
     void load(true);
   }, [live.revision, load]);
 
+  /**
+   * Acknowledge, optimistically.
+   *
+   * The row leaves the list on the press and the count drops with it, because
+   * that is what the person just decided and they should not watch a spinner
+   * to find out whether it took. If the dashboard refuses, the row comes back
+   * where it was and an error says why.
+   */
   const acknowledge = async (alert: Alert) => {
     if (!idToken || busy) return;
+    haptic.success();
     setBusy(alert.alert_id);
+
+    const previous = alerts;
+    const previousCount = activeCount;
+    if (filter === 'active') setAlerts((prev) => prev.filter((a) => a.alert_id !== alert.alert_id));
+    setActiveCount((n) => Math.max(0, n - 1));
+
     try {
       await dashboardApi.acknowledgeAlert(idToken, alert.alert_id);
-      // Already gone from "Open" as far as the server is concerned; reflect that now.
-      setAlerts((prev) => (filter === 'active' ? prev.filter((a) => a.alert_id !== alert.alert_id) : prev));
-      setActiveCount((n) => Math.max(0, n - 1));
     } catch (cause) {
+      haptic.error();
+      setAlerts(previous);
+      setActiveCount(previousCount);
       setError(errorMessage(cause, "We couldn't acknowledge that alert."));
     } finally {
       setBusy(null);
     }
+  };
+
+  /**
+   * An alert is about a camera, so tapping it goes to that camera, playing.
+   * Tapping a row used to acknowledge it, which meant a mis-tap cleared an
+   * alert nobody had looked at and there was no way to see the picture at all.
+   */
+  const openCamera = (alert: Alert) => {
+    if (!alert.camera_id) return;
+    haptic.tap();
+    select(alert.camera_id);
+    router.push('/(tabs)/live');
   };
 
   const subtitle = !canView
@@ -172,20 +212,42 @@ export default function Alerts() {
                   key={alert.alert_id}
                   icon="alerts"
                   label={alert.label}
-                  hint={[when(alert.created_at), alert.location, alert.centre?.name].filter(Boolean).join(' · ')}
+                  hint={[
+                    when(alert.created_at),
+                    alert.location,
+                    alert.centre?.name,
+                    alert.camera_id ? cameraName(cameras, alert.camera_id) : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
                   tone={alert.severity === 'critical' || alert.severity === 'high' ? 'danger' : 'default'}
                   right={
-                    alert.acknowledged ? (
-                      <Pill label="Acknowledged" tone="idle" />
-                    ) : (
-                      <Pill label={alert.severity ?? 'alert'} tone={severityTone(alert.severity)} dot />
-                    )
+                    <View style={styles.rowActions}>
+                      {alert.acknowledged ? (
+                        <Pill label="Acknowledged" tone="idle" />
+                      ) : (
+                        <Pill label={alert.severity ?? 'alert'} tone={severityTone(alert.severity)} dot />
+                      )}
+                      {canAcknowledge && !alert.acknowledged ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`Acknowledge ${alert.label}`}
+                          disabled={busy === alert.alert_id}
+                          onPress={() => void acknowledge(alert)}
+                          style={({ pressed }) => [
+                            styles.ack,
+                            {
+                              borderColor: color.border,
+                              backgroundColor: pressed ? color.accentSoft : color.surfaceRaised,
+                            },
+                          ]}
+                        >
+                          <Icon name="check" size={18} color={color.textMuted} />
+                        </Pressable>
+                      ) : null}
+                    </View>
                   }
-                  onPress={
-                    canAcknowledge && !alert.acknowledged && filter === 'active'
-                      ? () => void acknowledge(alert)
-                      : undefined
-                  }
+                  onPress={alert.camera_id ? () => openCamera(alert) : undefined}
                 />
               ))}
             </ListGroup>
@@ -204,7 +266,8 @@ export default function Alerts() {
           {canAcknowledge && filter === 'active' && alerts.length ? (
             <View style={styles.note}>
               <Text style={[font.caption, { color: color.textFaint }]}>
-                Tap an alert to acknowledge it. This is the same action as on the dashboard.
+                Tap an alert to see its camera. The tick acknowledges it, the same action as on
+                the dashboard.
               </Text>
             </View>
           ) : null}
@@ -214,6 +277,22 @@ export default function Alerts() {
   );
 }
 
+/** The camera's name, when this account still has that camera. */
+function cameraName(cameras: { camera_id: string; display_name: string }[], id: string): string | null {
+  return cameras.find((c) => c.camera_id === id)?.display_name ?? null;
+}
+
 const styles = StyleSheet.create({
   note: { paddingHorizontal: space.xs, paddingTop: space.sm },
+  rowActions: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  // Its own 44pt target, so acknowledging is a deliberate press and not
+  // something a thumb does on the way to the camera.
+  ack: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });
