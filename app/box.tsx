@@ -128,7 +128,14 @@ export default function BoxScreen() {
       </View>
 
       {bindError ? <Banner tone="error" title="Couldn't bind" message={bindError} /> : null}
-      {error ? <Banner tone="error" title="Couldn't check the box" message={error} /> : null}
+      {error ? (
+        <Banner
+          tone="error"
+          title="Couldn't check the box"
+          message={error}
+          onRetry={() => void load()}
+        />
+      ) : null}
       {allReady ? <Banner tone="success" title="ZeroForg Box connected" /> : null}
 
       {devices === null && !error ? (

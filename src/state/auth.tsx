@@ -19,6 +19,7 @@ import { cloudApi } from '@/api/cloud';
 import { fetchManifest } from '@/api/console';
 import { RequestError } from '@/api/errors';
 import { firebaseAuth, firebaseEnabled, googleClientIds } from '@/api/firebase';
+import { onUnauthenticated, resetUnauthenticated } from '@/api/session';
 import { UserProfile } from '@/api/types';
 import { cacheKey, clearCache, readCache, writeCache } from '@/lib/cache';
 
@@ -241,6 +242,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [status, getToken]);
 
+  /**
+   * A service refused the token.
+   *
+   * Firebase tokens last an hour and the app refreshes them on a timer, so a
+   * 401 usually means the clock got ahead of the timer: ask Firebase for a new
+   * one and the next call works. It is only a real sign-out when Firebase has
+   * no user left, which is what a revoked or deleted account looks like.
+   */
+  useEffect(() => {
+    if (status !== 'signedIn') return;
+    onUnauthenticated(() => {
+      void (async () => {
+        if (!firebaseEnabled) return;
+        const current = firebaseAuth().currentUser;
+        if (current) {
+          try {
+            // Forced refresh: the cached token is the one that was just refused.
+            const fresh = await current.getIdToken(true);
+            setIdToken(fresh);
+            await SecureStore.setItemAsync(TOKEN_KEY, fresh);
+            resetUnauthenticated();
+            return;
+          } catch {
+            // Fall through to signing out.
+          }
+        }
+        await SecureStore.deleteItemAsync(TOKEN_KEY);
+        await clearCache();
+        setIdToken(null);
+        setUser(null);
+        setStatus('signedOut');
+        router.replace('/sign-in');
+      })();
+    });
+    return () => onUnauthenticated(null);
+  }, [status]);
+
   const refreshUser = useCallback(async () => {
     if (!idToken) return;
     const profile = await profileFor(idToken, true);
@@ -307,6 +345,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await clearCache();
     setIdToken(null);
     setOfflineHold(false);
+    resetUnauthenticated();
     setUser(null);
     setStatus('signedOut');
     router.replace('/sign-in');

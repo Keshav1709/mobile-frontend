@@ -195,7 +195,14 @@ export default function ZoneEditor() {
         </>
       }
     >
-      {error ? <Banner tone="error" title="Something went wrong" message={error} /> : null}
+      {error ? (
+        <Banner
+          tone="error"
+          title="Something went wrong"
+          message={error}
+          onRetry={() => void load()}
+        />
+      ) : null}
 
       {cameras.length > 1 ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>

@@ -115,7 +115,9 @@ export default function Reports() {
         <RefreshControl refreshing={refreshing} onRefresh={load} tintColor={color.accent} />
       }
     >
-      {error ? <Banner tone="error" title="Couldn't load" message={error} /> : null}
+      {error ? (
+        <Banner tone="error" title="Couldn't load" message={error} onRetry={() => void load()} />
+      ) : null}
 
       {loading ? (
         <SkeletonCard lines={3} />

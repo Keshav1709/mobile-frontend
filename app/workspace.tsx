@@ -79,7 +79,9 @@ export default function Workspace() {
       {/* Above the panels: the switcher changes which workspace they describe. */}
       <SiteSwitcher />
 
-      {error ? <Banner tone="error" title="Couldn't load" message={error} /> : null}
+      {error ? (
+        <Banner tone="error" title="Couldn't load" message={error} onRetry={() => void load()} />
+      ) : null}
 
       {loading ? (
         <SkeletonCard lines={4} />

@@ -110,7 +110,9 @@ export default function People() {
         <RefreshControl refreshing={refreshing} onRefresh={load} tintColor={color.accent} />
       }
     >
-      {error ? <Banner tone="error" title="Couldn't load" message={error} /> : null}
+      {error ? (
+        <Banner tone="error" title="Couldn't load" message={error} onRetry={() => void load()} />
+      ) : null}
 
       <View style={styles.tabs}>
         {TABS.map((entry) => (

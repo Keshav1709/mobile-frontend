@@ -202,7 +202,9 @@ export default function Attendance() {
         </View>
       </View>
 
-      {error ? <Banner tone="error" title="Couldn't load" message={error} /> : null}
+      {error ? (
+        <Banner tone="error" title="Couldn't load" message={error} onRetry={() => void load()} />
+      ) : null}
 
       {loading ? (
         <SkeletonCard lines={4} />
