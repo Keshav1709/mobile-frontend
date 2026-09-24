@@ -6,12 +6,13 @@ import { Banner } from '@/components/Banner';
 import { Button } from '@/components/Button';
 import { Screen } from '@/components/Screen';
 import { Stage, StageList, StageState } from '@/components/StageList';
-import { errorMessage } from '@/lib/helpers';
+import { backTo, errorMessage } from '@/lib/helpers';
 import { connectCamera, CONNECT_ERRORS, ConnectStage } from '@/onvif/connect';
 import { publishStream, streamNames, withRtspCredentials } from '@/onvif/relay';
 import { OnvifError } from '@/onvif/soap';
 import { useAgent } from '@/state/agent';
 import { useAuth } from '@/state/auth';
+import { useConsole } from '@/state/console';
 import { saveCredentials } from '@/state/cameraCredentials';
 import { useOnboarding } from '@/state/onboarding';
 
@@ -30,6 +31,7 @@ export default function Connecting() {
   const { target, takeCredentials, clear } = useOnboarding();
   const { api: agent } = useAgent();
   const { user } = useAuth();
+  const { orgId } = useConsole();
 
   const [stages, setStages] = useState<Record<ConnectStage, StageState>>({
     found: 'active',
@@ -69,7 +71,7 @@ export default function Connecting() {
         temporary_id: target.temporaryId,
         ip: target.ip,
         port: target.port,
-        tenant_id: user.tenant_id,
+        tenant_id: orgId ?? user.tenant_id,
         user_id: user.user_id,
         ...credentials,
       });
@@ -111,7 +113,7 @@ export default function Connecting() {
 
       await cloudApi.registerCamera({
         camera_id: cameraId,
-        tenant_id: user.tenant_id,
+        tenant_id: orgId ?? user.tenant_id,
         user_id: user.user_id,
         display_name:
           [result.device.manufacturer, result.device.model].filter(Boolean).join(' ') ||
@@ -153,13 +155,13 @@ export default function Connecting() {
   if (error) {
     return (
       <Screen
-        onBack={() => router.replace('/onboarding')}
+        onBack={() => backTo('/onboarding')}
         eyebrow="Connecting"
         title="We couldn't connect"
         footer={
           <>
-            <Button label="Try again" onPress={() => router.replace('/onboarding/credentials')} />
-            <Button label="Back" variant="ghost" onPress={() => router.replace('/onboarding')} />
+            <Button label="Try again" onPress={() => backTo('/onboarding/credentials')} />
+            <Button label="Back" variant="ghost" onPress={() => backTo('/onboarding')} />
           </>
         }
       >
@@ -170,7 +172,7 @@ export default function Connecting() {
 
   return (
     <Screen
-      onBack={() => router.replace('/onboarding')}
+      onBack={() => backTo('/onboarding')}
       eyebrow={agent ? 'Connecting · local agent' : 'Connecting'}
       title="Connecting…"
       subtitle={

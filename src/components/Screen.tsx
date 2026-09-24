@@ -5,6 +5,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  ScrollViewProps,
   StyleSheet,
   Text,
   View,
@@ -12,8 +13,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Glow } from '@/components/Glow';
-import { IconButton } from '@/components/IconButton';
-import { ThemeToggle } from '@/components/ThemeToggle';
+import { ICON_BUTTON_SIZE, IconButton } from '@/components/IconButton';
+import { GUTTER, HEADER_TOP, useTabBarClearance } from '@/lib/layout';
+import { useAuth } from '@/state/auth';
 import { useTheme } from '@/state/theme';
 import { font, space } from '@/theme';
 
@@ -29,8 +31,14 @@ type Props = {
   action?: ReactNode;
   /** Renders a back control left of the title. */
   onBack?: () => void;
-  /** Hides the theme toggle where a parent already renders one. */
-  hideToggle?: boolean;
+  /** Unused since the menu button became a fixed overlay; kept for callers. */
+  hideMenu?: boolean;
+  /** The screen sits under the floating tab bar; pad the bottom so nothing hides behind it. */
+  tabBar?: boolean;
+  /** Pull-to-refresh control for the scroll view. */
+  refreshControl?: ScrollViewProps['refreshControl'];
+  /** Larger title, for a screen's landing page (Home). */
+  titleSize?: 'title' | 'display';
 };
 
 export function Screen({
@@ -43,10 +51,21 @@ export function Screen({
   glow = true,
   action,
   onBack,
-  hideToggle,
+  hideMenu,
+  tabBar,
+  refreshControl,
+  titleSize = 'title',
 }: Props) {
   const { color } = useTheme();
-  const body = <View style={styles.body}>{children}</View>;
+  const { status } = useAuth();
+  const clearance = useTabBarClearance();
+  // The burger lives in a fixed overlay (see MenuProvider); this row keeps
+  // its corner clear so nothing ever draws under it.
+  const reserveMenuSlot = status === 'signedIn';
+  const bottomPad = tabBar ? clearance : 0;
+  const body = (
+    <View style={[styles.body, tabBar && !footer && { paddingBottom: bottomPad }]}>{children}</View>
+  );
 
   return (
     <View style={[styles.root, { backgroundColor: color.base }]}>
@@ -56,24 +75,26 @@ export function Screen({
           style={styles.safe}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-          {title || action || !hideToggle ? (
+          {title || action || onBack || reserveMenuSlot ? (
             <View style={styles.header}>
-              {onBack ? <IconButton glyph="‹" label="Go back" onPress={onBack} /> : null}
+              {reserveMenuSlot ? <View style={styles.menuSlot} /> : null}
+              {onBack ? <IconButton icon="back" label="Go back" onPress={onBack} /> : null}
               <View style={styles.headingText}>
                 {eyebrow ? (
                   <Text style={[font.eyebrow, { color: color.textFaint }]}>{eyebrow}</Text>
                 ) : null}
-                {title ? <Text style={[font.title, { color: color.text }]}>{title}</Text> : null}
+                {title ? (
+                  <Text style={[titleSize === 'display' ? font.display : font.title, { color: color.text }]}>
+                    {title}
+                  </Text>
+                ) : null}
                 {subtitle ? (
                   <Text style={[font.body, styles.subtitle, { color: color.textMuted }]}>
                     {subtitle}
                   </Text>
                 ) : null}
               </View>
-              <View style={styles.actions}>
-                {action}
-                {hideToggle ? null : <ThemeToggle />}
-              </View>
+              {action ? <View style={styles.actions}>{action}</View> : null}
             </View>
           ) : null}
 
@@ -83,6 +104,7 @@ export function Screen({
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
               showsVerticalScrollIndicator={false}
+              refreshControl={refreshControl}
             >
               <Pressable onPress={Keyboard.dismiss} style={styles.dismiss}>
                 {body}
@@ -93,7 +115,15 @@ export function Screen({
           )}
 
           {footer ? (
-            <View style={[styles.footer, { borderTopColor: color.border }]}>{footer}</View>
+            <View
+              style={[
+                styles.footer,
+                { borderTopColor: color.border },
+                tabBar && { paddingBottom: bottomPad },
+              ]}
+            >
+              {footer}
+            </View>
           ) : null}
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -109,18 +139,19 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: space.md,
-    paddingHorizontal: space.xl,
-    paddingTop: space.lg,
+    paddingHorizontal: GUTTER,
+    paddingTop: HEADER_TOP,
     paddingBottom: space.lg,
   },
+  menuSlot: { width: ICON_BUTTON_SIZE, height: ICON_BUTTON_SIZE },
   headingText: { flex: 1, gap: 6 },
   actions: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingTop: 2 },
   subtitle: { marginTop: 2 },
   scroll: { flexGrow: 1 },
   dismiss: { flex: 1 },
-  body: { flex: 1, paddingHorizontal: space.xl, paddingBottom: space.lg, gap: space.md },
+  body: { flex: 1, paddingHorizontal: GUTTER, paddingBottom: space.lg, gap: space.md },
   footer: {
-    paddingHorizontal: space.xl,
+    paddingHorizontal: GUTTER,
     paddingTop: space.lg,
     paddingBottom: space.sm,
     gap: space.md,

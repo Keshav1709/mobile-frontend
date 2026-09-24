@@ -1,6 +1,7 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { haptic } from '@/lib/haptics';
 import { useTheme } from '@/state/theme';
 import { font, radius, space } from '@/theme';
 
@@ -42,7 +43,10 @@ export function Button({ label, onPress, variant = 'primary', disabled, loading 
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ disabled: !!inactive, busy: !!loading }}
-      onPress={onPress}
+      onPress={() => {
+        haptic.tap();
+        onPress();
+      }}
       disabled={inactive}
       style={({ pressed }) => [pressed && !inactive && styles.pressed, inactive && styles.inactive]}
     >
@@ -71,6 +75,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.lg,
   },
   label: { fontSize: 15, letterSpacing: 0.1 },
-  pressed: { opacity: 0.82 },
+  pressed: { opacity: 0.82, transform: [{ scale: 0.985 }] },
   inactive: { opacity: 0.4 },
 });

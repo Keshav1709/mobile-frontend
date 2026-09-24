@@ -8,6 +8,7 @@ import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { Pill } from '@/components/Pill';
 import { Screen } from '@/components/Screen';
+import { finishFlow, goBack } from '@/lib/helpers';
 import { useAuth } from '@/state/auth';
 import { useTheme } from '@/state/theme';
 import { font, hue, radius, space } from '@/theme';
@@ -20,17 +21,17 @@ const STEPS = [
 
 export default function AddCamera() {
   const { color } = useTheme();
-  const { user } = useAuth();
+  const { user, idToken } = useAuth();
   const [connected, setConnected] = useState<Camera[]>([]);
 
   const load = useCallback(async () => {
-    if (!user) return;
+    if (!user || !idToken) return;
     try {
-      setConnected(await cloudApi.listCameras(user.tenant_id));
+      setConnected(await cloudApi.listCameras(idToken));
     } catch {
       setConnected([]);
     }
-  }, [user]);
+  }, [user, idToken]);
 
   useFocusEffect(
     useCallback(() => {
@@ -40,7 +41,7 @@ export default function AddCamera() {
 
   return (
     <Screen
-      onBack={() => router.replace('/(tabs)')}
+      onBack={() => goBack('/(tabs)')}
       eyebrow="Camera onboarding"
       title="Add a camera"
       subtitle="Connect a camera on this Wi-Fi network."
@@ -64,8 +65,8 @@ export default function AddCamera() {
             <Card
               key={camera.camera_id}
               glow
-              tint={hue.teal}
-              onPress={() => router.replace('/(tabs)')}
+              tint={hue.jade}
+              onPress={() => finishFlow('/(tabs)/live')}
             >
               <View style={styles.cardTop}>
                 <Text

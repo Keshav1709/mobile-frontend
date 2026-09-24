@@ -2,6 +2,9 @@ export type ApiError = { code: string; message: string };
 
 /** Copy for the error codes the services return. Never surface a raw traceback. */
 const COPY: Record<string, string> = {
+  // Signing in and a camera's ONVIF credentials are different things and read
+  // differently: "username" is the camera's word, an account here is an email.
+  INVALID_SIGN_IN: 'Incorrect email or password. Please try again.',
   INVALID_CREDENTIALS: 'Username or password is incorrect.',
   ONVIF_AUTH_FAILED: 'Username or password is incorrect.',
   CAMERA_UNREACHABLE:
@@ -13,6 +16,8 @@ const COPY: Record<string, string> = {
   STREAM_VALIDATION_FAILED: "We connected to the camera but couldn't start its video stream.",
   TIMEOUT: 'The camera took too long to respond.',
   NETWORK_ERROR: "We couldn't reach the service. Check your connection and try again.",
+  DATABASE_UNREACHABLE:
+    "Zero Forg can't reach your workspace data right now. It should come back on its own \u2014 try again shortly.",
   SERVER_ERROR: 'The service had a problem. Try again in a moment.',
   UNKNOWN_ERROR: 'Something went wrong.',
 };

@@ -5,6 +5,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -14,25 +15,35 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Banner } from '@/components/Banner';
 import { Button } from '@/components/Button';
 import { Contours } from '@/components/Contours';
+import { Divider } from '@/components/Divider';
 import { Glow } from '@/components/Glow';
 import { Orb } from '@/components/Orb';
-import { Pulse } from '@/components/Pulse';
 import { Pill } from '@/components/Pill';
+import { Pulse } from '@/components/Pulse';
 import { TextField } from '@/components/TextField';
 import { errorMessage } from '@/lib/helpers';
 import { useAuth } from '@/state/auth';
-import { ThemeToggle } from '@/components/ThemeToggle';
 import { useTheme } from '@/state/theme';
 import { font, space } from '@/theme';
 
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+type Busy = 'email' | 'google' | null;
+
+/**
+ * Sign in with the account your administrator created on the dashboard.
+ * There is no sign-up here: the app and the dashboard share one user base.
+ */
 export default function SignIn() {
-  const { signInWithGoogle, sendOtp, googleReady, developmentMode } = useAuth();
+  const { signInWithEmail, signInWithGoogle, googleAvailable, googleReady, developmentMode } = useAuth();
   const { color } = useTheme();
-  const [phone, setPhone] = useState('');
-  const [busy, setBusy] = useState<'google' | 'phone' | null>(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const run = async (kind: 'google' | 'phone', action: () => Promise<void>) => {
+  const run = async (kind: Exclude<Busy, null>, action: () => Promise<void>) => {
+    if (busy) return;
     setError(null);
     setBusy(kind);
     try {
@@ -44,82 +55,110 @@ export default function SignIn() {
     }
   };
 
+  // Enabled as soon as both fields have something in them. The address is
+  // checked on submit, where a typo can be explained, rather than by greying
+  // the button out and leaving the person to guess what is wrong.
+  const emailReady = email.trim().length > 0 && password.length > 0;
+
+  const submitEmail = () => {
+    const address = email.trim();
+    if (!EMAIL.test(address)) {
+      setError('Enter a valid email address, like name@example.com.');
+      return;
+    }
+    run('email', async () => {
+      await signInWithEmail(address, password);
+      router.replace('/');
+    });
+  };
+
   return (
     <View style={[styles.root, { backgroundColor: color.base }]}>
-      <Glow y={0.22} size={1.3} opacity={0.5} />
+      <Glow y={0.18} size={1.3} opacity={0.5} />
       <Contours />
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <KeyboardAvoidingView
-          style={styles.flow}
+          style={styles.safe}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-        <View style={styles.toggleRow}>
-          <ThemeToggle />
-        </View>
-        <Pressable style={styles.hero} onPress={Keyboard.dismiss}>
-          <Pill label="Zero Forg Vision" tone="accent" dot />
-          <Pulse duration={4200} min={0.72}>
-            <Orb size={200} />
-          </Pulse>
-          <View style={styles.copy}>
-            <Text style={[font.display, styles.headline, { color: color.text }]}>
-              Every camera,{'\n'}
-              <Text style={{ color: color.accent }}>one intelligence.</Text>
-            </Text>
-            <Text style={[font.body, styles.lede, { color: color.textMuted }]}>
-              Sign in to discover and connect the cameras on your network.
-            </Text>
-          </View>
-        </Pressable>
+          <ScrollView
+            contentContainerStyle={styles.scroll}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <Pressable style={styles.hero} onPress={Keyboard.dismiss}>
+              <Pill label="Zero Forg Vision" tone="accent" dot />
+              <Pulse duration={4200} min={0.72}>
+                <Orb size={150} />
+              </Pulse>
+              <View style={styles.copy}>
+                <Text style={[font.display, styles.headline, { color: color.text }]}>
+                  Every camera,{'\n'}
+                  <Text style={{ color: color.accent }}>one intelligence.</Text>
+                </Text>
+                <Text style={[font.body, styles.lede, { color: color.textMuted }]}>
+                  Industrial Intelligence System
+                </Text>
+              </View>
+            </Pressable>
 
-        <View style={styles.panel}>
-          {error ? <Banner tone="error" title="Couldn't sign in" message={error} /> : null}
+            <View style={styles.panel}>
+              {error ? <Banner tone="error" title="Couldn't sign in" message={error} /> : null}
 
-          <Button
-            label="Continue with Google"
-            onPress={() =>
-              run('google', async () => {
-                await signInWithGoogle();
-                router.replace('/');
-              })
-            }
-            disabled={!googleReady}
-            loading={busy === 'google'}
-          />
+              <TextField
+                label="Email"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="email"
+                textContentType="username"
+                placeholder="name@example.com"
+              />
+              <TextField
+                label="Password"
+                value={password}
+                onChangeText={setPassword}
+                secure
+                autoComplete="current-password"
+                textContentType="password"
+                placeholder="Your password"
+                returnKeyType="go"
+                onSubmitEditing={() => emailReady && submitEmail()}
+              />
+              <Button
+                label="Sign in"
+                onPress={submitEmail}
+                disabled={!emailReady}
+                loading={busy === 'email'}
+              />
 
-          <View style={styles.divider}>
-            <View style={[styles.rule, { backgroundColor: color.border }]} />
-            <Text style={[font.eyebrow, styles.dividerText, { color: color.textFaint }]}>
-              or continue with phone
-            </Text>
-            <View style={[styles.rule, { backgroundColor: color.border }]} />
-          </View>
+              {googleAvailable ? (
+                <>
+                  <Divider label="or continue with" />
+                  <Button
+                    label="Google"
+                    variant="secondary"
+                    onPress={() =>
+                      run('google', async () => {
+                        await signInWithGoogle();
+                        router.replace('/');
+                      })
+                    }
+                    disabled={!googleReady}
+                    loading={busy === 'google'}
+                  />
+                </>
+              ) : null}
 
-          <TextField
-            label="Phone number"
-            value={phone}
-            onChangeText={setPhone}
-            keyboardType="phone-pad"
-            autoComplete="tel"
-            textContentType="telephoneNumber"
-          />
-          <Button
-            label="Send verification code"
-            variant="secondary"
-            onPress={() =>
-              run('phone', async () => {
-                await sendOtp(phone.trim());
-                router.push({ pathname: '/verify-otp', params: { phone: phone.trim() } });
-              })
-            }
-            disabled={phone.trim().length < 8}
-            loading={busy === 'phone'}
-          />
+              {developmentMode ? <Banner tone="info" title="Development mode" /> : null}
 
-          {developmentMode ? (
-            <Banner tone="info" title="Development mode" />
-          ) : null}
-        </View>
+              <Text style={[font.caption, styles.note, { color: color.textFaint }]}>
+                Accounts are created by your administrator on the Zero Forg dashboard.
+              </Text>
+            </View>
+          </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
     </View>
@@ -129,14 +168,11 @@ export default function SignIn() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   safe: { flex: 1 },
-  flow: { flex: 1, justifyContent: 'space-between' },
-  toggleRow: { alignItems: 'flex-end', paddingHorizontal: space.xl, paddingTop: space.sm },
-  hero: { alignItems: 'center', paddingTop: space.sm, paddingHorizontal: space.xl, gap: space.lg },
-  copy: { gap: space.sm, alignItems: 'center' },
-  headline: { textAlign: 'center' },
+  scroll: { flexGrow: 1 },
+  hero: { alignItems: 'center', paddingTop: space.xl, paddingHorizontal: space.xl, gap: space.md },
+  copy: { gap: space.xs, alignItems: 'center' },
+  headline: { textAlign: 'center', fontSize: 28, lineHeight: 34 },
   lede: { textAlign: 'center', maxWidth: 300 },
   panel: { padding: space.xl, gap: space.md },
-  divider: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.xs },
-  rule: { flex: 1, height: StyleSheet.hairlineWidth },
-  dividerText: { fontSize: 10 },
+  note: { textAlign: 'center', paddingTop: space.sm },
 });

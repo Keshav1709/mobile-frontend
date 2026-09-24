@@ -1,0 +1,235 @@
+import { useEffect, useRef, useState } from 'react';
+import { AppState, Image, StyleSheet, Text, View } from 'react-native';
+import { WebView } from 'react-native-webview';
+
+import { dashboardApi } from '@/api/dashboard';
+import { Pill } from '@/components/Pill';
+import { useAuth } from '@/state/auth';
+import { useConsole } from '@/state/console';
+import { useTheme } from '@/state/theme';
+import { font, radius, space } from '@/theme';
+
+/** Missed frames before the tile admits it has lost the camera. */
+const FAIL_BEFORE_DOWN = 3;
+/** MJPEG must have painted within this, or the tile falls back to polling frames. */
+const MJPEG_FIRST_PAINT_MS = 8000;
+
+type Mode = 'probing' | 'mjpeg' | 'frames';
+
+/**
+ * A camera, live, through the dashboard.
+ *
+ * Two ways to play it, chosen the way the web's Live wall chooses:
+ *
+ *   MJPEG   — where the site box runs go2rtc, the dashboard mints a signed URL and
+ *             proxies the multipart stream through itself. Smooth, and no LAN needed.
+ *             Rendered in a WebView, which paints multipart/x-mixed-replace natively.
+ *
+ *   Frames  — everywhere else: the newest annotated JPEG (detections burned in),
+ *             polled at the interval the manifest sets. This is what production shows
+ *             for NASSCOM today. Two <Image>s are kept and swapped only once the next
+ *             frame has loaded, so the picture never blinks to blank between polls.
+ *
+ * Polling stops when the app leaves the foreground and resumes on return. A missed
+ * frame keeps the last picture; three in a row mark the camera as lost.
+ */
+export function LiveStream({ cameraId }: { cameraId: string }) {
+  const { idToken, getToken } = useAuth();
+  const { manifest, orgId } = useConsole();
+
+  const wantsMjpeg = Boolean(manifest?.live?.go2rtc);
+  const intervalMs = Math.max(1000, manifest?.live?.frame_interval_ms ?? 2000);
+
+  const [mode, setMode] = useState<Mode>(wantsMjpeg ? 'probing' : 'frames');
+  const [mjpegUrl, setMjpegUrl] = useState<string | null>(null);
+
+  // Which way to play: ask for MJPEG once per camera; 409 (or any refusal) means
+  // frames. Re-decided on a centre switch, since go2rtc is per site.
+  useEffect(() => {
+    let live = true;
+    setMjpegUrl(null);
+    if (!wantsMjpeg || !idToken) {
+      setMode('frames');
+      return;
+    }
+    setMode('probing');
+    (async () => {
+      const token = (await getToken()) ?? idToken;
+      const signed = await dashboardApi.liveUrl(token, cameraId).catch(() => null);
+      if (!live) return;
+      if (signed) {
+        setMjpegUrl(signed.url);
+        setMode('mjpeg');
+      } else {
+        setMode('frames');
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [cameraId, wantsMjpeg, idToken, getToken, orgId]);
+
+  if (mode === 'mjpeg' && mjpegUrl) {
+    return (
+      <MjpegPlayer
+        url={mjpegUrl}
+        onFail={() => {
+          setMjpegUrl(null);
+          setMode('frames');
+        }}
+      />
+    );
+  }
+  return <FramePlayer cameraId={cameraId} intervalMs={intervalMs} probing={mode === 'probing'} />;
+}
+
+function MjpegPlayer({ url, onFail }: { url: string; onFail: () => void }) {
+  const { color } = useTheme();
+  const [painted, setPainted] = useState(false);
+
+  // A WebView that never reports a load is a stream that never started.
+  useEffect(() => {
+    if (painted) return;
+    const timer = setTimeout(onFail, MJPEG_FIRST_PAINT_MS);
+    return () => clearTimeout(timer);
+  }, [painted, onFail]);
+
+  return (
+    <View style={[styles.player, { borderColor: color.border, backgroundColor: color.surfaceSunken }]}>
+      <WebView
+        source={{ uri: url }}
+        style={styles.fill}
+        onLoadEnd={() => setPainted(true)}
+        onError={onFail}
+        onHttpError={onFail}
+        scrollEnabled={false}
+        bounces={false}
+        allowsInlineMediaPlayback
+        mediaPlaybackRequiresUserAction={false}
+      />
+      <View style={styles.badge}>
+        <Pill label="Live" tone="live" dot />
+      </View>
+    </View>
+  );
+}
+
+function FramePlayer({ cameraId, intervalMs, probing }: { cameraId: string; intervalMs: number; probing: boolean }) {
+  const { color } = useTheme();
+  const { idToken, getToken } = useAuth();
+  const { orgId } = useConsole();
+
+  // Double buffer: `front` is what is shown; the next frame loads into `back` and
+  // becomes `front` only in its onLoad. The one that just went behind is then given
+  // the URL after that, and so on.
+  const [front, setFront] = useState<string | null>(null);
+  const [back, setBack] = useState<string | null>(null);
+  const [headers, setHeaders] = useState<Record<string, string> | null>(null);
+  const [lastAt, setLastAt] = useState<number | null>(null);
+  const [down, setDown] = useState(false);
+  const fails = useRef(0);
+  const active = useRef(true);
+
+  // Headers a native image request must carry. Refreshed when the org or token changes.
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      const token = (await getToken()) ?? idToken;
+      if (live && token) setHeaders(dashboardApi.frameHeaders(token));
+    })();
+    return () => {
+      live = false;
+    };
+  }, [idToken, getToken, orgId]);
+
+  // Ask for the next frame on a timer, only while the app is on screen.
+  useEffect(() => {
+    if (!headers) return;
+    setFront(null);
+    setBack(null);
+    setDown(false);
+    fails.current = 0;
+    active.current = AppState.currentState === 'active';
+
+    const tick = () => {
+      if (!active.current) return;
+      setBack(dashboardApi.frameUrl(cameraId));
+    };
+    tick();
+    const timer = setInterval(tick, intervalMs);
+    const sub = AppState.addEventListener('change', (next) => {
+      active.current = next === 'active';
+      if (active.current) tick();
+    });
+    return () => {
+      clearInterval(timer);
+      sub.remove();
+    };
+  }, [cameraId, intervalMs, headers, orgId]);
+
+  const loaded = (url: string) => {
+    fails.current = 0;
+    setDown(false);
+    setLastAt(Date.now());
+    setFront(url);
+  };
+  const failed = () => {
+    fails.current += 1;
+    if (fails.current >= FAIL_BEFORE_DOWN) setDown(true);
+  };
+
+  const status = down ? 'No signal' : probing ? 'Connecting' : front ? 'Live' : 'Loading';
+  const tone = down ? 'idle' : front && !probing ? 'live' : 'neutral';
+
+  return (
+    <View style={[styles.player, { borderColor: color.border, backgroundColor: color.surfaceSunken }]}>
+      {front && headers ? (
+        <Image source={{ uri: front, headers }} style={styles.fill} resizeMode="contain" />
+      ) : null}
+      {back && headers && back !== front ? (
+        // Loaded off-screen; promoted to the front only once it has decoded.
+        <Image
+          source={{ uri: back, headers }}
+          style={[styles.fill, styles.hidden]}
+          onLoad={() => loaded(back)}
+          onError={failed}
+        />
+      ) : null}
+      {!front ? (
+        <View style={styles.centre}>
+          <Text style={[font.caption, { color: color.textFaint }]}>
+            {down ? 'The camera has not sent a frame.' : 'Waiting for the first frame…'}
+          </Text>
+        </View>
+      ) : null}
+      <View style={styles.badge}>
+        <Pill label={status} tone={tone} dot={tone === 'live'} />
+        {lastAt && !down ? (
+          <Text style={[font.monoSmall, { color: color.white, opacity: 0.8 }]}>
+            every {Math.round(intervalMs / 1000)}s
+          </Text>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  player: {
+    aspectRatio: 16 / 9,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  fill: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  hidden: { opacity: 0 },
+  centre: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
+  badge: {
+    position: 'absolute',
+    left: space.sm,
+    top: space.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+  },
+});

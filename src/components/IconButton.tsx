@@ -1,10 +1,15 @@
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { Pressable, StyleSheet } from 'react-native';
 
+import { Icon } from '@/components/Icon';
+import { IconKey } from '@/lib/icons';
 import { useTheme } from '@/state/theme';
 import { radius } from '@/theme';
 
+/** Every round header control is this size, so it lands under the same thumb. */
+export const ICON_BUTTON_SIZE = 44;
+
 type Props = {
-  glyph: string;
+  icon: IconKey;
   label: string;
   onPress: () => void;
   /** Draws the button in its accent state, for toggles that are on. */
@@ -15,9 +20,9 @@ type Props = {
   checked?: boolean;
 };
 
-/** The round header control: theme toggle, back, camera settings. */
+/** The round header control: menu, back, camera settings. 44 pt: a real tap target. */
 export function IconButton({
-  glyph,
+  icon,
   label,
   onPress,
   active,
@@ -33,7 +38,7 @@ export function IconButton({
       accessibilityLabel={label}
       accessibilityState={{ expanded, checked }}
       onPress={onPress}
-      hitSlop={8}
+      hitSlop={6}
       style={({ pressed }) => [
         styles.button,
         {
@@ -43,20 +48,19 @@ export function IconButton({
         pressed && styles.pressed,
       ]}
     >
-      <Text style={[styles.glyph, { color: active ? color.accent : color.text }]}>{glyph}</Text>
+      <Icon name={icon} size={20} color={active ? color.accent : color.text} />
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   button: {
-    width: 38,
-    height: 38,
+    width: ICON_BUTTON_SIZE,
+    height: ICON_BUTTON_SIZE,
     borderRadius: radius.pill,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  glyph: { fontSize: 16 },
-  pressed: { opacity: 0.7 },
+  pressed: { opacity: 0.7, transform: [{ scale: 0.96 }] },
 });

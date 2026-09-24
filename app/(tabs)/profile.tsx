@@ -11,10 +11,10 @@ import { DetailList } from '@/components/DetailList';
 import { Pill } from '@/components/Pill';
 import { Screen } from '@/components/Screen';
 import { CAMERA_TYPES } from '@/lib/cameraTypes';
-import { errorMessage } from '@/lib/helpers';
+import { confirmSignOut, errorMessage } from '@/lib/helpers';
 import { useAuth } from '@/state/auth';
 import { useTheme } from '@/state/theme';
-import { font, radius, space } from '@/theme';
+import { family, font, radius, space } from '@/theme';
 
 /** How the account was created, in words rather than a provider id. */
 const PROVIDER: Record<string, string> = {
@@ -25,7 +25,7 @@ const PROVIDER: Record<string, string> = {
 };
 
 export default function Profile() {
-  const { user, signOut, idToken, refreshUser } = useAuth();
+  const { user, signOut, idToken, refreshUser, readOnly, registryOffline } = useAuth();
   const { color, gradient } = useTheme();
 
   const [editingType, setEditingType] = useState(false);
@@ -52,16 +52,22 @@ export default function Profile() {
 
   return (
     <Screen
+      tabBar
       eyebrow="Your account"
       title="Profile"
       footer={
         <>
-          <Button
-            label="Edit details"
-            variant="secondary"
-            onPress={() => router.push('/create-profile')}
-          />
-          <Button label="Sign out" variant="ghost" onPress={signOut} />
+          {/* Name, phone and e-mail belong to the dashboard account; only
+              the app's own preferences can be edited from here. */}
+          {readOnly ? null : (
+            <Button
+              label="Edit details"
+              variant="secondary"
+              onPress={() => router.push('/create-profile')}
+            />
+          )}
+          <Button label="Camera areas" variant="secondary" onPress={() => router.push('/zones')} />
+          <Button label="Sign out" variant="ghost" onPress={() => confirmSignOut(signOut)} />
         </>
       }
     >
@@ -90,6 +96,13 @@ export default function Profile() {
         </View>
       </View>
 
+      {registryOffline ? (
+        <Banner
+          tone="info"
+          title="Signed in through the dashboard"
+          message="The app's own service couldn't be reached, so camera type and date of birth aren't available right now. Everything else is up to date."
+        />
+      ) : null}
       {error ? <Banner tone="error" title="Couldn't save" message={error} /> : null}
 
       {editingType ? (
@@ -138,7 +151,7 @@ export default function Profile() {
       <DetailList
         title="Account"
         rows={[
-          { label: 'Organisation', value: user?.tenant_id },
+          { label: 'Organisation', value: user?.tenant_name ?? user?.tenant_id },
           { label: 'Member since', value: formatDate(user?.created_at?.slice(0, 10)) },
         ]}
       />
@@ -168,7 +181,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  initials: { fontSize: 26, fontWeight: '700', letterSpacing: 0.5 },
+  initials: { fontSize: 26, fontFamily: family.bold, letterSpacing: 0.5 },
   identity: { flex: 1, gap: 4 },
   badges: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.xs },
   group: { gap: space.md },

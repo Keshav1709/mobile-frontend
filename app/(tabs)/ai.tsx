@@ -7,10 +7,10 @@ import { useTheme } from '@/state/theme';
 import { font, hue, radius, space } from '@/theme';
 
 const PLANNED = [
-  { title: 'Person and vehicle detection', tint: hue.lime },
-  { title: 'Zone intrusion alerts', tint: hue.pink },
-  { title: 'Loitering and crowd analysis', tint: hue.violet },
-  { title: 'Natural-language footage search', tint: hue.orange },
+  { title: 'Person and vehicle detection', tint: hue.jade },
+  { title: 'Zone intrusion alerts', tint: hue.gold },
+  { title: 'Loitering and crowd analysis', tint: hue.slate },
+  { title: 'Natural-language footage search', tint: hue.amber },
 ];
 
 export default function AiFeatures() {
@@ -18,6 +18,7 @@ export default function AiFeatures() {
 
   return (
     <Screen
+      tabBar
       eyebrow="Intelligence"
       title="AI features"
       subtitle="Detection and analysis running on your cameras."

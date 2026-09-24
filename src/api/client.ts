@@ -3,7 +3,7 @@ import { joinUrl } from '@/lib/helpers';
 import { RequestError } from './errors';
 
 type Options = {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   body?: unknown;
   headers?: Record<string, string>;
   timeoutMs?: number;
@@ -42,13 +42,32 @@ export async function request<T>(
   const payload = await response.json().catch(() => null);
 
   if (!response.ok) {
-    // A body without a `code` means the service failed before its own error
-    // handling ran, so report it as a service fault rather than a camera one.
-    const error =
-      payload && typeof payload === 'object' && 'code' in payload
-        ? (payload as { code: string; message: string })
-        : { code: 'SERVER_ERROR', message: 'The service returned an unexpected response.' };
+    const error = errorFrom(payload, response.status);
     throw new RequestError(error);
   }
   return payload as T;
+}
+
+/**
+ * Turn whatever a service returned into the `{ code, message }` contract.
+ *
+ * Our own services already speak it. The ZeroForg dashboard is a plain FastAPI
+ * app, so its refusals arrive as `{"detail": "..."}` — and that sentence is
+ * usually the most useful thing anyone could show ("Attendance board is not
+ * enabled for this organization"), so it is kept rather than flattened into a
+ * generic fault.
+ */
+function errorFrom(payload: unknown, status: number): { code: string; message: string } {
+  if (payload && typeof payload === 'object') {
+    const body = payload as { code?: unknown; message?: unknown; detail?: unknown };
+    if (typeof body.code === 'string') {
+      return { code: body.code, message: String(body.message ?? '') };
+    }
+    const detail = typeof body.detail === 'string' ? body.detail : undefined;
+    if (detail) return { code: status === 403 ? 'NOT_ENABLED' : 'HTTP_ERROR', message: detail };
+  }
+  if (status === 401) {
+    return { code: 'UNAUTHENTICATED', message: 'Your session expired. Sign in again.' };
+  }
+  return { code: 'SERVER_ERROR', message: 'The service returned an unexpected response.' };
 }

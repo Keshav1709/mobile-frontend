@@ -9,7 +9,7 @@ import { ChipGroup } from '@/components/ChipGroup';
 import { Screen } from '@/components/Screen';
 import { TextField } from '@/components/TextField';
 import { CAMERA_TYPES } from '@/lib/cameraTypes';
-import { errorMessage } from '@/lib/helpers';
+import { errorMessage, goBack } from '@/lib/helpers';
 import { useAuth } from '@/state/auth';
 import { useTheme } from '@/state/theme';
 import { font, space } from '@/theme';
@@ -48,8 +48,7 @@ export default function CreateProfile() {
         camera_type: cameraType,
       });
       await refreshUser();
-      if (router.canGoBack()) router.back();
-      else router.replace('/(tabs)');
+      goBack('/(tabs)/profile');
     } catch (cause) {
       setError(errorMessage(cause, "We couldn't save your profile."));
     } finally {
@@ -59,9 +58,9 @@ export default function CreateProfile() {
 
   return (
     <Screen
-      onBack={router.canGoBack() ? () => router.back() : undefined}
+      onBack={() => goBack('/(tabs)/profile')}
       eyebrow="Your profile"
-      title={user?.profile_completed ? 'Edit your profile' : 'Set up your profile'}
+      title="Edit your profile"
       subtitle="A few details so Zero Forg knows who it's protecting."
       footer={
         <Button

@@ -1,92 +1,26 @@
-import { router, Tabs } from 'expo-router';
-import { StyleSheet, Text } from 'react-native';
+import { Tabs } from 'expo-router';
 
+import { GlassTabBar } from '@/components/GlassTabBar';
 import { useTheme } from '@/state/theme';
-import { font } from '@/theme';
 
-const ICONS = { home: '⌂', live: '▣', add: '＋', profile: '◍', ai: '✦', alerts: '☰' } as const;
-
-function TabIcon({ name, focused }: { name: keyof typeof ICONS; focused: boolean }) {
-  const { color } = useTheme();
-  return (
-    <Text style={[styles.icon, { color: focused ? color.accent : color.textFaint }]}>
-      {ICONS[name]}
-    </Text>
-  );
-}
-
+/**
+ * Two tabs — Home and Live — in a floating glass capsule centred at the
+ * bottom (see GlassTabBar). Everything else lives in the burger menu; those
+ * routes stay registered but keep out of the bar.
+ */
 export default function TabsLayout() {
   const { color } = useTheme();
-
   return (
     <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: color.accent,
-        tabBarInactiveTintColor: color.textFaint,
-        tabBarStyle: {
-          backgroundColor: color.surface,
-          borderTopColor: color.border,
-          borderTopWidth: StyleSheet.hairlineWidth,
-          height: 84,
-          paddingTop: 8,
-        },
-        tabBarLabelStyle: { ...font.caption, fontSize: 11, fontWeight: '600' },
-      }}
+      tabBar={(props) => <GlassTabBar {...props} />}
+      screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: color.base } }}
     >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ focused }) => <TabIcon name="home" focused={focused} />,
-        }}
-      />
-      <Tabs.Screen
-        name="live"
-        options={{
-          title: 'Live',
-          tabBarIcon: ({ focused }) => <TabIcon name="live" focused={focused} />,
-        }}
-      />
-      <Tabs.Screen
-        name="add"
-        options={{
-          title: 'Add camera',
-          tabBarIcon: ({ focused }) => <TabIcon name="add" focused={focused} />,
-        }}
-        listeners={{
-          // Open the flow full-screen instead of nesting it inside the tabs.
-          tabPress: (event) => {
-            event.preventDefault();
-            router.push('/onboarding');
-          },
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: 'Profile',
-          tabBarIcon: ({ focused }) => <TabIcon name="profile" focused={focused} />,
-        }}
-      />
-      <Tabs.Screen
-        name="ai"
-        options={{
-          title: 'AI',
-          tabBarIcon: ({ focused }) => <TabIcon name="ai" focused={focused} />,
-        }}
-      />
-      <Tabs.Screen
-        name="alerts"
-        options={{
-          title: 'Alerts',
-          tabBarIcon: ({ focused }) => <TabIcon name="alerts" focused={focused} />,
-        }}
-      />
+      <Tabs.Screen name="index" options={{ title: 'Home' }} />
+      <Tabs.Screen name="live" options={{ title: 'Live' }} />
+      {/* Reachable from the menu, not the bar (GlassTabBar only draws Home and Live). */}
+      <Tabs.Screen name="profile" options={{ href: null }} />
+      <Tabs.Screen name="ai" options={{ href: null }} />
+      <Tabs.Screen name="alerts" options={{ href: null }} />
     </Tabs>
   );
 }
-
-const styles = StyleSheet.create({
-  icon: { fontSize: 18 },
-});

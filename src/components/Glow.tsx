@@ -18,10 +18,13 @@ type Props = {
  * radial gradient, and it carries most of the depth in the dark theme.
  */
 export function Glow({ tint, x = 0.5, y = 0.35, size = 0.9, opacity, style }: Props) {
-  const { color, scheme } = useTheme();
-  const fill = tint ?? color.accent;
-  // Light backgrounds need a far gentler bloom or it reads as a smudge.
-  const strength = opacity ?? (scheme === 'dark' ? 0.55 : 0.16);
+  const { color } = useTheme();
+  // The palette decides what the bloom is made of: gold on the dark ground,
+  // a warm near-white on the light one. That white bloom is what makes the
+  // light scheme read as lit rather than merely pale, so it is deliberately
+  // far stronger than a tint of the accent would be.
+  const fill = tint ?? color.glow;
+  const strength = opacity ?? color.glowStrength;
 
   return (
     <View pointerEvents="none" style={[StyleSheet.absoluteFill, style]}>

@@ -11,6 +11,17 @@ export type AgentInfo = {
   port: number;
   go2rtc_url: string;
   capabilities: string[];
+  /** Whether the box is bound to a workspace; carries the claim code while it waits. */
+  cloud?: {
+    enabled: boolean;
+    registered: boolean;
+    connected: boolean;
+    last_error: string | null;
+    device_id?: string;
+    org_id?: string;
+    claim_code?: string;
+    claim_expires_at?: string;
+  };
 };
 
 export type AgentDevice = {

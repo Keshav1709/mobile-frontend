@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "264155321414",
+    "project_id": "ultra-solution-490112-n2",
+    "storage_bucket": "ultra-solution-490112-n2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:264155321414:android:0126f5e8d25f6de023e647",
+        "android_client_info": {
+          "package_name": "com.zeroforg.mobile"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "264155321414-vg4jnd3g55at9oqj8srf1igapd8mce4l.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDnbcFr5ih5XFLZqqToZgKsRtPN2SaVYdI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "264155321414-qi10vqc5ertfi2m9qcpvprilja090l6g.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

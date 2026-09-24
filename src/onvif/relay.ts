@@ -50,3 +50,9 @@ export const streamNames = (cameraId: string) => ({
 export function livePlayerUrl(name: string): string {
   return joinUrl(RELAY_URL, 'stream.html') + query({ src: name, mode: 'webrtc,mse,mjpeg' });
 }
+
+/** One still frame of a stream, for drawing areas on. go2rtc renders it on demand. */
+export function frameUrl(name: string): string | null {
+  if (!RELAY_URL) return null;
+  return joinUrl(RELAY_URL, 'api/frame.jpeg') + query({ src: name, t: Date.now() });
+}

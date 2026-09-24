@@ -1,12 +1,9 @@
 import * as Google from 'expo-auth-session/providers/google';
+import { router } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import * as WebBrowser from 'expo-web-browser';
-import {
-  ConfirmationResult,
-  GoogleAuthProvider,
-  signInWithCredential,
-  signInWithPhoneNumber,
-} from 'firebase/auth';
+import { AppState } from 'react-native';
+import { GoogleAuthProvider, signInWithCredential, signInWithEmailAndPassword } from 'firebase/auth';
 import {
   createContext,
   ReactNode,
@@ -19,10 +16,10 @@ import {
 } from 'react';
 
 import { cloudApi } from '@/api/cloud';
+import { fetchManifest } from '@/api/console';
 import { RequestError } from '@/api/errors';
 import { firebaseAuth, firebaseEnabled, googleClientIds } from '@/api/firebase';
 import { UserProfile } from '@/api/types';
-import { RecaptchaHandle, RecaptchaModal } from '@/components/RecaptchaModal';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -47,12 +44,39 @@ type AuthValue = {
   idToken: string | null;
   /** True when no Firebase project is configured and sign-in is simulated. */
   developmentMode: boolean;
+  /**
+   * The registry (the app's own small service, on a LAN or tailnet address) could not
+   * be reached, so this session was established from the dashboard alone. Everything
+   * the dashboard serves works; the profile's app-only fields (camera type, date of
+   * birth) are unavailable until it is back.
+   */
+  registryOffline: boolean;
+  /**
+   * The registry is a read-only view of the ZeroForg dashboard: it can show
+   * everything and change nothing. Screens use this to drop edit controls
+   * rather than offer buttons whose only outcome is a refusal.
+   */
+  readOnly: boolean;
+  /** Google sign-in can be offered: Firebase plus a native OAuth client id, or development mode. */
+  googleAvailable: boolean;
   googleReady: boolean;
+  /**
+   * A currently-valid ID token.
+   *
+   * `idToken` above is the one captured at sign-in and it expires after an hour, so
+   * anything that calls a service must go through this instead: Firebase refreshes
+   * silently when the cached token is close to expiry. Falls back to the stored token
+   * in development mode, where there is no Firebase to ask.
+   */
+  getToken: () => Promise<string | null>;
   /** Re-reads the profile after it changes server-side. */
   refreshUser: () => Promise<void>;
+  /**
+   * Email + password against the same Firebase project as the dashboard.
+   * Accounts are created on the dashboard; the app only signs them in.
+   */
+  signInWithEmail: (email: string, password: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
-  sendOtp: (phoneNumber: string) => Promise<void>;
-  confirmOtp: (code: string) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -62,21 +86,64 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<Status>('loading');
   const [user, setUser] = useState<UserProfile | null>(null);
   const [idToken, setIdToken] = useState<string | null>(null);
+  // Assume read-only until the registry says otherwise: showing an edit
+  // control that then fails is worse than briefly hiding one that works.
+  const [readOnly, setReadOnly] = useState(true);
+  const [registryOffline, setRegistryOffline] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    cloudApi
+      .config()
+      .then((config) => {
+        if (live) setReadOnly(!!config.read_only);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
   const [googlePrompt, setGooglePrompt] = useState<Prompt | null>(null);
 
-  const recaptcha = useRef<RecaptchaHandle>(null);
-  const confirmation = useRef<ConfirmationResult | null>(null);
-  const devPhone = useRef<string | null>(null);
   const googlePending =
     useRef<{ resolve: () => void; reject: (e: Error) => void } | undefined>(undefined);
 
+  /**
+   * The profile for a token: the registry's if it answers, else one assembled from
+   * the dashboard's manifest.
+   *
+   * The registry sits on a LAN or tailnet address that moves; the dashboard is public.
+   * A registry that cannot be reached must not stop someone whose account the
+   * dashboard vouches for from signing in — but a registry that *refuses* (no such
+   * account) is a real answer and is kept. Only transport failures fall through.
+   */
+  const profileFor = useCallback(async (token: string, restore: boolean): Promise<UserProfile> => {
+    try {
+      const profile = restore ? await cloudApi.me(token) : (await cloudApi.createSession(token)).user;
+      setRegistryOffline(false);
+      return profile;
+    } catch (cause) {
+      if (!(cause instanceof RequestError) || !TRANSPORT_FAILURES.has(cause.code)) throw cause;
+      let manifest;
+      try {
+        manifest = (await fetchManifest(token)).manifest;
+      } catch {
+        // Neither service answered: report the registry's failure, which is the
+        // one whose message says "check your connection".
+        throw cause;
+      }
+      setRegistryOffline(true);
+      return profileFromManifest(manifest);
+    }
+  }, []);
+
   const establish = useCallback(async (token: string) => {
-    const { user: profile } = await cloudApi.createSession(token);
+    const profile = await profileFor(token, false);
     await SecureStore.setItemAsync(TOKEN_KEY, token);
     setIdToken(token);
     setUser(profile);
     setStatus('signedIn');
-  }, []);
+  }, [profileFor]);
 
   // Restore a previous session, dropping it if the registry no longer accepts it.
   useEffect(() => {
@@ -84,7 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const stored = await SecureStore.getItemAsync(TOKEN_KEY);
       if (!stored) return setStatus('signedOut');
       try {
-        setUser(await cloudApi.me(stored));
+        setUser(await profileFor(stored, true));
         setIdToken(stored);
         setStatus('signedIn');
       } catch {
@@ -92,12 +159,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setStatus('signedOut');
       }
     })();
-  }, []);
+  }, [profileFor]);
+
+  const getToken = useCallback(async () => {
+    if (!firebaseEnabled) return idToken;
+    const current = firebaseAuth().currentUser;
+    if (!current) return idToken;
+    try {
+      const fresh = await current.getIdToken();
+      // Keep the stored copy current so a cold start restores a usable session.
+      if (fresh && fresh !== idToken) {
+        setIdToken(fresh);
+        SecureStore.setItemAsync(TOKEN_KEY, fresh).catch(() => undefined);
+      }
+      return fresh;
+    } catch {
+      // A refresh that fails (revoked, offline) is not worth throwing over here —
+      // the call that follows will fail with a message the screen can show.
+      return idToken;
+    }
+  }, [idToken]);
+
+  // Firebase ID tokens last an hour. Every screen still holds `idToken` for its
+  // requests, so keep that copy fresh on a timer and whenever the app comes back to
+  // the foreground — otherwise the first tap after a long pause is a 401 and a
+  // "sign in again" that nobody asked for.
+  useEffect(() => {
+    if (status !== 'signedIn' || !firebaseEnabled) return;
+    const refresh = () => void getToken();
+    const timer = setInterval(refresh, 30 * 60 * 1000);
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') refresh();
+    });
+    return () => {
+      clearInterval(timer);
+      sub.remove();
+    };
+  }, [status, getToken]);
 
   const refreshUser = useCallback(async () => {
     if (!idToken) return;
-    setUser(await cloudApi.me(idToken));
-  }, [idToken]);
+    setUser(await profileFor(idToken, true));
+  }, [idToken, profileFor]);
 
   const settleGoogle = useCallback((error?: Error) => {
     const pending = googlePending.current;
@@ -118,8 +221,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [establish, settleGoogle],
   );
 
+  const signInWithEmail = useCallback(
+    async (email: string, password: string) => {
+      const address = email.trim().toLowerCase();
+      if (!firebaseEnabled) {
+        // Development mode only: no Firebase at all, so a local token stands in.
+        return establish(devToken({ provider: 'password', email: address }));
+      }
+      let token: string;
+      try {
+        const result = await signInWithEmailAndPassword(firebaseAuth(), address, password);
+        token = await result.user.getIdToken();
+      } catch (cause) {
+        throw emailAuthError(cause);
+      }
+      await establish(token);
+    },
+    [establish],
+  );
+
   const signInWithGoogle = useCallback(async () => {
-    if (!googleConfigured) return establish(devToken({ provider: 'google.com' }));
+    if (!firebaseEnabled) return establish(devToken({ provider: 'google.com' }));
+    if (!googleConfigured) throw signInFailed();
     const prompt = googlePrompt;
     if (!prompt) throw signInFailed();
     await new Promise<void>((resolve, reject) => {
@@ -128,49 +251,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, [establish, googlePrompt, settleGoogle]);
 
-  const sendOtp = useCallback(async (phoneNumber: string) => {
-    if (!firebaseEnabled) {
-      devPhone.current = phoneNumber;
-      return;
-    }
-    const verifier = recaptcha.current;
-    if (!verifier) throw signInFailed();
-    try {
-      confirmation.current = await signInWithPhoneNumber(firebaseAuth(), phoneNumber, verifier);
-    } catch {
-      throw new RequestError({
-        code: 'OTP_SEND_FAILED',
-        message: "We couldn't send a code to that number. Check it and try again.",
-      });
-    }
-  }, []);
-
-  const confirmOtp = useCallback(
-    async (code: string) => {
-      if (!firebaseEnabled) {
-        if (code.length !== 6) throw invalidCode();
-        return establish(devToken({ provider: 'phone', phoneNumber: devPhone.current }));
-      }
-      if (!confirmation.current) throw signInFailed();
-      try {
-        const result = await confirmation.current.confirm(code);
-        await establish(await result.user.getIdToken());
-      } catch {
-        throw invalidCode();
-      }
-    },
-    [establish],
-  );
-
   const holdPrompt = useCallback((prompt: Prompt) => setGooglePrompt(() => prompt), []);
   const cancelGoogle = useCallback(() => settleGoogle(signInFailed()), [settleGoogle]);
 
+  /** Signs out and returns to the sign-in screen. */
   const signOut = useCallback(async () => {
     await SecureStore.deleteItemAsync(TOKEN_KEY);
-    confirmation.current = null;
     setIdToken(null);
     setUser(null);
     setStatus('signedOut');
+    router.replace('/sign-in');
   }, []);
 
   const value = useMemo<AuthValue>(
@@ -179,22 +269,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       idToken,
       developmentMode: !firebaseEnabled,
-      googleReady: !googleConfigured || !!googlePrompt,
+      registryOffline,
+      readOnly,
+      googleAvailable: !firebaseEnabled || googleConfigured,
+      googleReady: !firebaseEnabled || (googleConfigured && !!googlePrompt),
+      getToken,
       refreshUser,
+      signInWithEmail,
       signInWithGoogle,
-      sendOtp,
-      confirmOtp,
       signOut,
     }),
     [
       status,
       user,
       idToken,
+      registryOffline,
+      readOnly,
       googlePrompt,
+      getToken,
       refreshUser,
+      signInWithEmail,
       signInWithGoogle,
-      sendOtp,
-      confirmOtp,
       signOut,
     ],
   );
@@ -205,7 +300,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {googleConfigured ? (
         <GoogleSignIn onPrompt={holdPrompt} onToken={onGoogleToken} onCancel={cancelGoogle} />
       ) : null}
-      {firebaseEnabled ? <RecaptchaModal ref={recaptcha} /> : null}
     </AuthContext.Provider>
   );
 }
@@ -251,23 +345,99 @@ export function useAuth(): AuthValue {
   return value;
 }
 
+/** Errors that mean "the registry did not answer", as opposed to "it said no". */
+const TRANSPORT_FAILURES = new Set(['NETWORK_ERROR', 'TIMEOUT', 'SERVER_ERROR', 'DATABASE_UNREACHABLE']);
+
+/**
+ * A profile from the manifest alone. Everything the app needs to run comes from the
+ * dashboard; the fields left null are the registry's own (`mobile_profiles`) and the
+ * profile screen says so while `registryOffline` is set.
+ */
+function profileFromManifest(manifest: Awaited<ReturnType<typeof fetchManifest>>['manifest']): UserProfile {
+  return {
+    user_id: manifest.user.id,
+    tenant_id: manifest.org.id,
+    tenant_name: manifest.org.name,
+    tenant_slug: manifest.org.slug,
+    features: manifest.enabled_keys ?? [],
+    email: manifest.user.email ?? null,
+    phone_number: null,
+    display_name: null,
+    first_name: null,
+    last_name: null,
+    date_of_birth: null,
+    camera_type: null,
+    auth_provider: 'password',
+    created_at: null,
+    // Not a first run: the account exists on the dashboard, which is what these flags
+    // gate. Sending someone back through onboarding because a side service was down
+    // would be the wrong lesson to draw from the outage.
+    profile_completed: true,
+    onboarding_completed: true,
+  };
+}
+
 const signInFailed = () =>
   new RequestError({ code: 'SIGN_IN_FAILED', message: "We couldn't sign you in. Try again." });
 
-const invalidCode = () =>
-  new RequestError({ code: 'INVALID_CODE', message: 'That code is not correct. Try again.' });
+/**
+ * A wrong address and a wrong password are deliberately the same message:
+ * saying which of the two was wrong tells an unauthenticated caller whether
+ * the account exists.
+ */
+const invalidCredentials = () =>
+  new RequestError({
+    code: 'INVALID_SIGN_IN',
+    message: 'Incorrect email or password. Please try again.',
+  });
+
+/** The dashboard's Firebase error mapping for sign-in, verbatim. */
+function emailAuthError(cause: unknown): RequestError {
+  const code = (cause as { code?: string })?.code ?? '';
+  if (code === 'auth/invalid-email')
+    return new RequestError({ code: 'INVALID_EMAIL', message: 'Invalid email address' });
+  if (
+    code === 'auth/user-not-found' ||
+    code === 'auth/wrong-password' ||
+    code === 'auth/invalid-credential' ||
+    // Older Firebase builds spell the same refusal this way.
+    code === 'auth/invalid-login-credentials'
+  )
+    return invalidCredentials();
+  if (code === 'auth/network-request-failed')
+    // Not a credential problem, and saying so sends people to retype a
+    // password that was right all along.
+    return new RequestError({
+      code: 'NETWORK_ERROR',
+      message: "We couldn't reach the service. Check your connection and try again.",
+    });
+  if (code === 'auth/too-many-requests')
+    return new RequestError({
+      code: 'RATE_LIMITED',
+      message: 'Too many attempts. Try again in a few minutes.',
+    });
+  if (code === 'auth/user-disabled')
+    return new RequestError({
+      code: 'ACCOUNT_DISABLED',
+      message: 'This account has been disabled. Contact your administrator.',
+    });
+  return new RequestError({ code: 'AUTH_FAILED', message: 'Failed to sign in. Please try again.' });
+}
 
 /**
  * Development mode only: an unsigned token carrying the same claims Firebase
- * would send. The cloud registry accepts these while CLOUD_ENV is not
- * "production", so the app is usable before a Firebase project exists.
+ * would send. The registry accepts these only while CLOUD_ENV is not
+ * "production".
  */
-function devToken({ provider, phoneNumber }: { provider: string; phoneNumber?: string | null }) {
+function devToken({ provider, email }: { provider: string; email?: string }) {
+  const userId =
+    provider === 'password'
+      ? `dev_${(email ?? 'email').replace(/[^a-z0-9]/gi, '_')}`
+      : 'dev_google';
   const claims = {
-    user_id: `dev_${provider === 'phone' ? (phoneNumber ?? 'phone').replace(/\D/g, '') : 'google'}`,
-    email: provider === 'google.com' ? 'dev@zeroforg.local' : undefined,
-    phone_number: phoneNumber ?? undefined,
-    name: provider === 'phone' ? phoneNumber : 'Development User',
+    user_id: userId,
+    email: provider === 'google.com' ? 'dev@zeroforg.local' : email,
+    name: provider === 'password' ? email : 'Development User',
     firebase: { sign_in_provider: provider },
   };
   return `${base64Url('{"alg":"none"}')}.${base64Url(JSON.stringify(claims))}.dev`;

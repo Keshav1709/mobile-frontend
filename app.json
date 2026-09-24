@@ -2,10 +2,11 @@
   "expo": {
     "name": "Zero Forg",
     "slug": "zeroforg-mobile",
+    "owner": "mobile-app-zero-forg-team",
     "scheme": "zeroforg",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "orientation": "portrait",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
@@ -17,7 +18,8 @@
           "NSAllowsLocalNetworking": true
         }
       },
-      "backgroundColor": "#05070B"
+      "backgroundColor": "#0C0D0D",
+      "buildNumber": "1"
     },
     "android": {
       "package": "com.zeroforg.mobile",
@@ -25,9 +27,17 @@
       "permissions": [
         "CAMERA",
         "INTERNET",
-        "ACCESS_NETWORK_STATE"
+        "ACCESS_NETWORK_STATE",
+        "POST_NOTIFICATIONS",
+        "VIBRATE"
       ],
-      "backgroundColor": "#05070B"
+      "backgroundColor": "#0C0D0D",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundImage": "./assets/adaptive-background.png"
+      },
+      "googleServicesFile": "./google-services.json"
     },
     "plugins": [
       "expo-router",
@@ -35,11 +45,36 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Scan the pairing code shown by your Zero Forg Agent."
+          "cameraPermission": "Scan the pairing code shown by your Zero Forg Agent.",
+          "recordAudioAndroid": false
         }
       ],
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash.png",
+          "imageWidth": 160,
+          "resizeMode": "contain",
+          "backgroundColor": "#0C0D0D",
+          "dark": {
+            "backgroundColor": "#0C0D0D"
+          }
+        }
+      ],
+      "expo-font",
+      "expo-notifications"
     ],
-    "backgroundColor": "#05070B"
+    "backgroundColor": "#0C0D0D",
+    "icon": "./assets/icon.png",
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "881bba61-b8c3-4b99-a845-f39fe8a1380c"
+      }
+    }
   }
 }

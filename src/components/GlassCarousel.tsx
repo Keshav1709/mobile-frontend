@@ -93,7 +93,7 @@ export function GlassCarousel({ slides }: { slides: GlassSlide[] }) {
                   <View key={row.label} style={styles.row}>
                     <Text style={[font.caption, { color: color.textMuted }]}>{row.label}</Text>
                     <Text style={[font.label, styles.value, { color: color.text }]}>
-                      {row.value ?? '—'}
+                      {row.value ?? 'Not set'}
                     </Text>
                   </View>
                 ))}

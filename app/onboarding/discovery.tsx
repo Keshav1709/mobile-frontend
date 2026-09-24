@@ -10,7 +10,7 @@ import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { Pill } from '@/components/Pill';
 import { Screen } from '@/components/Screen';
-import { errorMessage } from '@/lib/helpers';
+import { errorMessage, finishFlow, goBack } from '@/lib/helpers';
 import { serviceUrl } from '@/onvif/device';
 import { FoundCamera, localSubnet, scanForCameras } from '@/onvif/scan';
 import { useAgent } from '@/state/agent';
@@ -33,7 +33,7 @@ export default function Discovery() {
   const { color } = useTheme();
   const { api: agent } = useAgent();
   const { select } = useOnboarding();
-  const { user } = useAuth();
+  const { user, idToken } = useAuth();
   const [connectedIps, setConnectedIps] = useState<string[]>([]);
 
   const [results, setResults] = useState<Result[]>([]);
@@ -46,12 +46,12 @@ export default function Discovery() {
 
   // Cameras already in the registry are shown as connected, not offered again.
   useEffect(() => {
-    if (!user) return;
+    if (!user || !idToken) return;
     cloudApi
-      .listCameras(user.tenant_id)
+      .listCameras(idToken)
       .then((cameras) => setConnectedIps(cameras.map((c) => c.ip).filter((ip): ip is string => !!ip)))
       .catch(() => setConnectedIps([]));
-  }, [user]);
+  }, [user, idToken]);
 
   useEffect(() => {
     const signal = cancel.current;
@@ -112,7 +112,7 @@ export default function Discovery() {
 
   const choose = (result: Result) => {
     if (connectedIps.includes(result.ip)) {
-      router.replace('/(tabs)');
+      finishFlow('/(tabs)/live');
       return;
     }
     cancel.current.cancelled = true;
@@ -141,7 +141,7 @@ export default function Discovery() {
     <Screen
       onBack={() => {
         cancel.current.cancelled = true;
-        router.replace('/onboarding');
+        goBack('/onboarding');
       }}
       eyebrow={agent ? 'Discovery · local agent' : 'Discovery'}
       title={done ? heading(results.length) : 'Searching for cameras…'}

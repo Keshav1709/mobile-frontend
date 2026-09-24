@@ -7,40 +7,40 @@ import { Camera } from '@/api/types';
 import { Banner } from '@/components/Banner';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
+import { Icon } from '@/components/Icon';
 import { Screen } from '@/components/Screen';
+import { backTo, finishFlow } from '@/lib/helpers';
 import { useAuth } from '@/state/auth';
 import { useTheme } from '@/state/theme';
 import { font, radius, space } from '@/theme';
 
 export default function Success() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { idToken } = useAuth();
   const { color } = useTheme();
+  const { idToken } = useAuth();
   const [camera, setCamera] = useState<Camera | null>(null);
 
   useEffect(() => {
-    cloudApi.getCamera(id).then(setCamera).catch(() => setCamera(null));
-    if (idToken) cloudApi.completeOnboarding(idToken).catch(() => undefined);
-    // Runs once for this camera id.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+    if (!idToken) return;
+    cloudApi.getCamera(idToken, id).then(setCamera).catch(() => setCamera(null));
+  }, [id, idToken]);
 
   return (
     <Screen
-      onBack={() => router.replace('/(tabs)')}
+      onBack={() => finishFlow('/(tabs)')}
       eyebrow="Done"
       title="Camera connected"
       subtitle="It's registered to your account."
       footer={
         <>
-          <Button label="Open camera" onPress={() => router.replace('/(tabs)')} />
-          <Button label="Add another" variant="secondary" onPress={() => router.replace('/onboarding')} />
-          <Button label="Done" variant="ghost" onPress={() => router.replace('/(tabs)')} />
+          <Button label="Open camera" onPress={() => finishFlow('/(tabs)/live')} />
+          <Button label="Add another" variant="secondary" onPress={() => backTo('/onboarding')} />
+          <Button label="Done" variant="ghost" onPress={() => finishFlow('/(tabs)')} />
         </>
       }
     >
       <View style={[styles.check, { backgroundColor: color.successSoft }]}>
-        <Text style={[styles.checkGlyph, { color: color.success }]}>✓</Text>
+        <Icon name="check" size={32} color={color.success} />
       </View>
 
       <Card glow>
@@ -74,6 +74,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginVertical: space.lg,
   },
-  checkGlyph: { fontSize: 30, fontWeight: '700' },
   spec: { fontSize: 12 },
 });

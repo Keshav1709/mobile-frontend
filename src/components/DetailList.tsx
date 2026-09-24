@@ -25,7 +25,7 @@ export function DetailList({ title, rows }: { title?: string; rows: Detail[] }) 
               {row.label}
             </Text>
             <Text style={[font.label, styles.value, { color: color.text }]}>
-              {row.value || '—'}
+              {row.value || 'Not set'}
             </Text>
           </View>
         ))}

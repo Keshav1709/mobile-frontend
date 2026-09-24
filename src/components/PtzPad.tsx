@@ -1,5 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { Icon } from '@/components/Icon';
+import { IconKey } from '@/lib/icons';
 import type { Direction } from '@/onvif/ptz';
 import { useTheme } from '@/state/theme';
 import { font, radius, space } from '@/theme';
@@ -11,11 +13,11 @@ type Props = {
   busy?: Direction | null;
 };
 
-const GLYPHS: Record<Direction, string> = {
-  up: '▲',
-  down: '▼',
-  left: '◀',
-  right: '▶',
+const ICONS: Record<Direction, IconKey> = {
+  up: 'collapse',
+  down: 'expand',
+  left: 'back',
+  right: 'forward',
 };
 
 /**
@@ -41,9 +43,7 @@ export function PtzPad({ onStart, onStop, disabled, busy }: Props) {
         disabled && styles.disabled,
       ]}
     >
-      <Text style={[styles.glyph, { color: disabled ? color.textFaint : color.text }]}>
-        {GLYPHS[direction]}
-      </Text>
+      <Icon name={ICONS[direction]} size={22} color={disabled ? color.textFaint : color.text} />
     </Pressable>
   );
 
@@ -84,7 +84,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  glyph: { fontSize: 16 },
   hub: {
     width: KEY,
     height: KEY,

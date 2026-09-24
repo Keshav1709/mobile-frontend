@@ -1,15 +1,18 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 import { cloudApi } from '@/api/cloud';
 import { Camera } from '@/api/types';
 import { Banner } from '@/components/Banner';
+import { BottomSheet } from '@/components/BottomSheet';
 import { Button } from '@/components/Button';
-import { ChipGroup } from '@/components/ChipGroup';
-import { GlassCarousel, GlassSlide } from '@/components/GlassCarousel';
+import { EmptyState } from '@/components/EmptyState';
 import { IconButton } from '@/components/IconButton';
+import { ListGroup, ListRow } from '@/components/ListRow';
+import { LiveStream } from '@/components/LiveStream';
+import { Skeleton } from '@/components/Skeleton';
 import { Pill } from '@/components/Pill';
 import { PtzPad } from '@/components/PtzPad';
 import { Screen } from '@/components/Screen';
@@ -17,23 +20,20 @@ import type { Direction } from '@/onvif/ptz';
 import type { Credentials } from '@/onvif/soap';
 import { move, stop } from '@/onvif/ptz';
 import { livePlayerUrl, relayConfigured, streamNames, unpublishStream } from '@/onvif/relay';
+import { haptic } from '@/lib/haptics';
 import { errorMessage } from '@/lib/helpers';
 import { useAgent } from '@/state/agent';
 import { useAuth } from '@/state/auth';
 import { forgetCredentials, loadCredentials } from '@/state/cameraCredentials';
-import { ThemeMode, useTheme } from '@/state/theme';
-import { font, hue, radius, space } from '@/theme';
-
-const APPEARANCE: { label: string; mode: ThemeMode }[] = [
-  { label: 'Light', mode: 'light' },
-  { label: 'Dark', mode: 'dark' },
-  { label: 'Automatic', mode: 'auto' },
-];
+import { useTheme } from '@/state/theme';
+import { useToast } from '@/state/toast';
+import { font, radius, space } from '@/theme';
 
 export default function Live() {
-  const { user } = useAuth();
+  const { user, idToken, readOnly } = useAuth();
   const { api: agent, info: agentInfo } = useAgent();
-  const { color, mode, setMode } = useTheme();
+  const { color } = useTheme();
+  const toast = useToast();
 
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [index, setIndex] = useState(0);
@@ -47,9 +47,9 @@ export default function Live() {
   const credentials = useRef<{ id: string; value: Credentials | null } | null>(null);
 
   const load = useCallback(async () => {
-    if (!user) return;
+    if (!user || !idToken) return;
     try {
-      const list = await cloudApi.listCameras(user.tenant_id);
+      const list = await cloudApi.listCameras(idToken);
       setCameras(list);
       setIndex((current) => Math.min(current, Math.max(list.length - 1, 0)));
       setError(null);
@@ -58,7 +58,7 @@ export default function Live() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, idToken]);
 
   useFocusEffect(
     useCallback(() => {
@@ -67,7 +67,10 @@ export default function Live() {
   );
 
   const camera = cameras[index];
-  const live = relayConfigured && !!camera?.stream_reference;
+  // On the site's own network with the box relaying this camera, the phone can play
+  // the relay's WebRTC stream directly; everywhere else the picture comes through the
+  // dashboard (see LiveStream), exactly as the web console shows it.
+  const lan = relayConfigured && !!camera?.stream_reference;
 
   /** Reads the keychain once per camera rather than on every press. */
   const credentialsFor = async (id: string) => {
@@ -79,6 +82,7 @@ export default function Live() {
 
   const startPan = async (direction: Direction) => {
     if (!camera || !ptzSupported.current) return;
+    haptic.select();
     setPanning(direction);
 
     if (agent) {
@@ -121,6 +125,7 @@ export default function Live() {
 
   const confirmDisconnect = () => {
     if (!camera) return;
+    haptic.warning();
     Alert.alert(
       'Disconnect this camera?',
       `${camera.display_name} will be removed from your account and its live view will stop. You can add it again later.`,
@@ -146,14 +151,17 @@ export default function Live() {
     await cloudApi.deleteCamera(camera.camera_id).catch(() => undefined);
     setRemoving(false);
     setShowInfo(false);
+    toast.show(`${camera.display_name} disconnected`, 'info');
     load();
   };
 
   if (loading) {
     return (
-      <Screen glow={false}>
-        <View style={styles.centre}>
-          <ActivityIndicator color={color.accent} />
+      <Screen tabBar eyebrow="Live" title="Cameras">
+        <Skeleton height={0} style={styles.playerSkeleton} />
+        <View style={styles.controls}>
+          <Skeleton width={72} height={28} style={styles.pillSkeleton} />
+          <Skeleton width={150} height={36} style={styles.pillSkeleton} />
         </View>
       </Screen>
     );
@@ -161,76 +169,42 @@ export default function Live() {
 
   if (!camera) {
     return (
-      <Screen
-        eyebrow="Live"
-        title="No cameras yet"
-        subtitle="Connect a camera on your Wi-Fi to see it here."
-        footer={<Button label="Add a camera" onPress={() => router.push('/onboarding')} />}
-      >
-        {error ? <Banner tone="error" title="Couldn't load cameras" message={error} /> : null}
+      <Screen tabBar eyebrow="Live" title="Cameras">
+        {error ? (
+          <EmptyState
+            tone="error"
+            icon="offline"
+            title="Couldn't load cameras"
+            hint={error}
+            action={<Button label="Try again" variant="secondary" onPress={load} />}
+          />
+        ) : (
+          <EmptyState
+            icon="camera"
+            title="No cameras yet"
+            hint="Connect a camera on your Wi-Fi to see it here."
+            action={<Button label="Add a camera" onPress={() => router.push('/onboarding')} />}
+          />
+        )}
       </Screen>
     );
   }
 
   const streams = streamNames(camera.camera_id);
 
-  const infoSlides: GlassSlide[] = [
-    {
-      key: 'device',
-      title: 'Device',
-      tint: hue.pink,
-      rows: [
-        { label: 'Manufacturer', value: camera.manufacturer },
-        { label: 'Model', value: camera.model },
-        { label: 'Firmware', value: camera.firmware },
-        { label: 'Serial', value: camera.serial_number },
-      ],
-    },
-    {
-      key: 'stream',
-      title: 'Stream',
-      tint: hue.lime,
-      rows: [
-        { label: 'Resolution', value: camera.resolution },
-        { label: 'Profile', value: camera.selected_profile },
-        { label: 'Relay', value: camera.stream_reference ? 'Publishing' : 'Not published' },
-        { label: 'Status', value: camera.connection_status },
-      ],
-    },
-    {
-      key: 'setup',
-      title: 'Setup',
-      tint: hue.orange,
-      rows: [
-        { label: 'Mode', value: agent ? 'Local agent' : 'Direct from phone' },
-        { label: 'Agent', value: agentInfo?.agent_url ?? 'None on this network' },
-        {
-          label: 'Passwords',
-          value: agent ? 'Held by the agent' : "In this phone's keychain",
-        },
-      ],
-    },
-    {
-      key: 'network',
-      title: 'Network',
-      tint: hue.violet,
-      rows: [
-        { label: 'IP address', value: camera.ip },
-        { label: 'ONVIF service', value: camera.onvif_xaddr },
-        { label: 'Last seen', value: camera.last_seen?.slice(0, 19).replace('T', ' ') },
-      ],
-    },
-  ];
+  const areaCount = camera.zones_json?.length ?? 0;
+  const lastSeen = camera.last_seen?.slice(0, 19).replace('T', ' ');
 
   return (
     <Screen
+      tabBar
       eyebrow="Live"
       title={camera.display_name}
       subtitle={camera.ip ?? undefined}
       scroll
       action={
         <IconButton
-          glyph="⚙"
+          icon="settings"
           label="Camera settings"
           active={showInfo}
           expanded={showInfo}
@@ -240,7 +214,7 @@ export default function Live() {
     >
       {error ? <Banner tone="error" title="Something went wrong" message={error} /> : null}
 
-      {live ? (
+      {lan ? (
         <View style={[styles.player, { borderColor: color.border }]}>
           <WebView
             key={`${camera.camera_id}-${hd ? 'hd' : 'preview'}`}
@@ -253,19 +227,16 @@ export default function Live() {
           />
         </View>
       ) : (
-        <Banner
-          tone="info"
-          title="Live view unavailable"
-          message={
-            relayConfigured
-              ? "This camera's stream isn't published. Remove it and add it again."
-              : 'No relay is configured, so RTSP cannot be converted for playback.'
-          }
-        />
+        <LiveStream key={camera.camera_id} cameraId={camera.camera_id} />
       )}
 
       <View style={styles.controls}>
-        <Pill label={live ? 'Live' : 'Offline'} tone={live ? 'live' : 'idle'} dot />
+        <Pill
+          label={lan ? 'On site' : camera.connection_status === 'CONNECTED' ? 'Via cloud' : 'Camera offline'}
+          tone={camera.connection_status === 'CONNECTED' ? 'live' : 'idle'}
+          dot
+        />
+        {lan ? (
         <View style={[styles.quality, { backgroundColor: color.surface, borderColor: color.border }]}>
           {(
             [
@@ -295,45 +266,76 @@ export default function Live() {
             </Pressable>
           ))}
         </View>
+        ) : null}
       </View>
 
-      {showInfo ? (
-        <>
-          <View style={styles.info}>
-            <GlassCarousel slides={infoSlides} />
-          </View>
-          <ChipGroup
-            label="Appearance"
-            options={APPEARANCE.map((option) => option.label)}
-            value={APPEARANCE.find((option) => option.mode === mode)?.label ?? 'Dark'}
-            onChange={(label) => {
-              const chosen = APPEARANCE.find((option) => option.label === label);
-              if (chosen) setMode(chosen.mode);
-            }}
-          />
+      <PtzPad
+        onStart={startPan}
+        onStop={endPan}
+        busy={panning}
+        disabled={!ptzSupported.current}
+      />
 
-          <View style={styles.actions}>
-            <Button
-              label="Add another camera"
-              variant="secondary"
-              onPress={() => router.push('/onboarding')}
-            />
+      <BottomSheet
+        visible={showInfo}
+        onClose={() => setShowInfo(false)}
+        title={camera.display_name}
+        subtitle={[camera.manufacturer, camera.model].filter(Boolean).join(' ') || camera.ip || undefined}
+        footer={
+          // Disconnecting deletes the camera from the workspace, which is the
+          // dashboard's to do.
+          readOnly ? null : (
             <Button
               label="Disconnect this camera"
               variant="danger"
               onPress={confirmDisconnect}
               loading={removing}
             />
-          </View>
-        </>
-      ) : (
-        <PtzPad
-          onStart={startPan}
-          onStop={endPan}
-          busy={panning}
-          disabled={!ptzSupported.current}
-        />
-      )}
+          )
+        }
+      >
+        <ListGroup>
+          <ListRow
+            icon="areas"
+            label="Areas"
+            hint={areaCount ? `${areaCount} outlined on this camera` : 'Outline entrances, docks, restricted areas'}
+            onPress={() => {
+              setShowInfo(false);
+              router.push(`/zones/${camera.camera_id}`);
+            }}
+          />
+          <ListRow
+            icon="cameras"
+            label="Add another camera"
+            onPress={() => {
+              setShowInfo(false);
+              router.push('/onboarding');
+            }}
+          />
+        </ListGroup>
+        <ListGroup title="Stream">
+          <ListRow icon="live" label="Status" value={camera.connection_status === 'CONNECTED' ? 'Online' : 'Offline'} />
+          <ListRow label="Resolution" value={camera.resolution} />
+          <ListRow label="Profile" value={camera.selected_profile} />
+          <ListRow label="Relay" value={lan ? 'Publishing on site' : 'Through the dashboard'} />
+        </ListGroup>
+        <ListGroup title="Device">
+          <ListRow label="Manufacturer" value={camera.manufacturer} />
+          <ListRow label="Model" value={camera.model} />
+          <ListRow label="Firmware" value={camera.firmware} />
+          <ListRow label="Serial" value={camera.serial_number} />
+        </ListGroup>
+        <ListGroup title="Network">
+          <ListRow icon="wifi" label="IP address" value={camera.ip} />
+          <ListRow label="ONVIF service" value={camera.onvif_xaddr} />
+          <ListRow label="Last seen" value={lastSeen} />
+        </ListGroup>
+        <ListGroup title="Setup">
+          <ListRow icon="box" label="Managed by" value={agent ? 'ZeroForg Box' : 'This phone'} />
+          <ListRow label="Box address" value={agentInfo?.agent_url ?? 'None on this network'} />
+          <ListRow icon="key" label="Passwords" value={agent ? 'Held by the box' : 'In this phone'} />
+        </ListGroup>
+      </BottomSheet>
 
       {cameras.length > 1 ? (
         <View style={styles.switcher}>
@@ -358,7 +360,8 @@ export default function Live() {
 }
 
 const styles = StyleSheet.create({
-  centre: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  playerSkeleton: { width: '100%', aspectRatio: 16 / 9, borderRadius: radius.xl },
+  pillSkeleton: { borderRadius: radius.pill },
   // 16:9 across the full content width, so the picture gets the horizontal space.
   player: {
     width: '100%',
@@ -373,8 +376,6 @@ const styles = StyleSheet.create({
   quality: { flexDirection: 'row', gap: 4, padding: 4, borderRadius: radius.pill, borderWidth: 1 },
   qualityTab: { paddingHorizontal: space.lg, paddingVertical: 7, borderRadius: radius.pill },
   qualityText: { fontSize: 13 },
-  info: { marginHorizontal: -space.xl },
-  actions: { gap: space.md, paddingTop: space.sm },
   switcher: { flexDirection: 'row', justifyContent: 'center', gap: space.sm, paddingTop: space.sm },
   switchDot: { width: 8, height: 8, borderRadius: radius.pill },
 });

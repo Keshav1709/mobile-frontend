@@ -1,9 +1,11 @@
 import { StyleSheet, Text, View } from 'react-native';
 
+import { Icon } from '@/components/Icon';
 import { Pulse } from '@/components/Pulse';
+import { IconKey } from '@/lib/icons';
 
 import { useTheme } from '@/state/theme';
-import { font, radius, space } from '@/theme';
+import { family, font, radius, space } from '@/theme';
 
 type Props = {
   label: string;
@@ -11,9 +13,11 @@ type Props = {
   dot?: boolean;
   /** Overrides the tone with a category hue. */
   tint?: string;
+  /** Leading icon, e.g. a check on a "Ready" state. */
+  icon?: IconKey;
 };
 
-export function Pill({ label, tone = 'neutral', dot, tint }: Props) {
+export function Pill({ label, tone = 'neutral', dot, tint, icon }: Props) {
   const { color } = useTheme();
 
   const palette = {
@@ -32,7 +36,8 @@ export function Pill({ label, tone = 'neutral', dot, tint }: Props) {
           <View style={[styles.dot, { backgroundColor: foreground }]} />
         </Pulse>
       ) : null}
-      <Text numberOfLines={1} style={[font.caption, styles.label, { color: foreground }]}>
+      {icon ? <Icon name={icon} size={13} color={foreground} /> : null}
+      <Text numberOfLines={1} maxFontSizeMultiplier={1.3} style={[font.caption, styles.label, { color: foreground }]}>
         {label}
       </Text>
     </View>
@@ -51,5 +56,5 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
   },
   dot: { width: 6, height: 6, borderRadius: radius.pill },
-  label: { fontSize: 12, fontWeight: '600' },
+  label: { fontSize: 12, fontFamily: family.medium },
 });

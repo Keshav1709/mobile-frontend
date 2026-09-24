@@ -1,7 +1,9 @@
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
+import { Icon } from '@/components/Icon';
+
 import { useTheme } from '@/state/theme';
-import { font, radius, space } from '@/theme';
+import { family, font, radius, space } from '@/theme';
 
 export type StageState = 'pending' | 'active' | 'done' | 'failed';
 
@@ -34,7 +36,7 @@ export function StageList({ stages }: { stages: Stage[] }) {
               styles.text,
               {
                 color: stage.state === 'pending' ? color.textFaint : color.text,
-                fontWeight: stage.state === 'active' ? '600' : '400',
+                fontFamily: stage.state === 'active' ? family.semibold : family.regular,
               },
             ]}
           >
@@ -69,9 +71,8 @@ function Mark({ state }: { state: StageState }) {
         { backgroundColor: fill, borderColor: done || failed ? fill : color.borderStrong },
       ]}
     >
-      {done || failed ? (
-        <Text style={[styles.glyph, { color: color.white }]}>{done ? '✓' : '!'}</Text>
-      ) : null}
+      {done ? <Icon name="check" size={15} color={color.white} /> : null}
+      {failed ? <Text style={[styles.glyph, { color: color.white }]}>!</Text> : null}
     </View>
   );
 }
@@ -83,6 +84,6 @@ const styles = StyleSheet.create({
   mark: { width: 26, height: 26, alignItems: 'center', justifyContent: 'center' },
   line: { flex: 1, width: 1.5, marginVertical: 4 },
   dot: { borderRadius: radius.pill, borderWidth: 1.5 },
-  glyph: { fontSize: 13, fontWeight: '700' },
+  glyph: { fontSize: 13, fontFamily: family.bold },
   text: { paddingTop: 3, paddingBottom: space.lg },
 });

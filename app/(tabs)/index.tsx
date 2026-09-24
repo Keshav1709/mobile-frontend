@@ -1,45 +1,43 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { RefreshControl, StyleSheet, Text, View } from 'react-native';
 
 import { cloudApi } from '@/api/cloud';
 import { Camera } from '@/api/types';
-import { Banner } from '@/components/Banner';
+import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
-import { Contours } from '@/components/Contours';
-import { Glow } from '@/components/Glow';
+import { EmptyState } from '@/components/EmptyState';
+import { SkeletonCard } from '@/components/Skeleton';
 import { Pill } from '@/components/Pill';
-import { ThemeToggle } from '@/components/ThemeToggle';
+import { Screen } from '@/components/Screen';
 import { Tile } from '@/components/Tile';
 import { errorMessage } from '@/lib/helpers';
-import { relayConfigured } from '@/onvif/relay';
 import { useAgent } from '@/state/agent';
 import { useAuth } from '@/state/auth';
 import { useTheme } from '@/state/theme';
-import { font, hue, radius, space } from '@/theme';
+import { font, hue, space } from '@/theme';
 
 export default function Home() {
   const { color } = useTheme();
-  const { user } = useAuth();
+  const { user, idToken } = useAuth();
   const { info: agentInfo } = useAgent();
 
-  const [cameras, setCameras] = useState<Camera[]>([]);
+  const [cameras, setCameras] = useState<Camera[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
-    if (!user) return;
+    if (!user || !idToken) return;
     setRefreshing(true);
     try {
-      setCameras(await cloudApi.listCameras(user.tenant_id));
+      setCameras(await cloudApi.listCameras(idToken));
       setError(null);
     } catch (cause) {
       setError(errorMessage(cause, "Couldn't load cameras."));
     } finally {
       setRefreshing(false);
     }
-  }, [user]);
+  }, [user, idToken]);
 
   useFocusEffect(
     useCallback(() => {
@@ -47,123 +45,113 @@ export default function Home() {
     }, [load]),
   );
 
-  const streaming = cameras.filter(
-    (camera) => relayConfigured && !!camera.stream_reference,
-  ).length;
+  const list = cameras ?? [];
+  // Online = the dashboard has heard from it recently; the same test the web wall uses.
+  const streaming = list.filter((camera) => camera.connection_status === 'CONNECTED').length;
 
   return (
-    <View style={[styles.root, { backgroundColor: color.base }]}>
-      <Glow y={0.04} size={1.2} />
-      <Contours opacity={0.1} />
-      <SafeAreaView style={styles.safe} edges={['top']}>
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={load} tintColor={color.textMuted} />
-          }
+    <Screen
+      tabBar
+      eyebrow="Zero Forg Vision"
+      title={`Hi, ${user?.first_name ?? 'there'}`}
+      titleSize="display"
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={load} tintColor={color.textMuted} />
+      }
+    >
+      <View style={styles.bento}>
+        <Tile
+          title="Add a camera"
+          caption="Scan your network"
+          featured
+          onPress={() => router.push('/onboarding')}
+          style={styles.wide}
         >
-          <View style={styles.greeting}>
-            <View style={styles.greetingText}>
-              <Text style={[font.eyebrow, { color: color.textFaint }]}>Zero Forg Vision</Text>
-              <Text style={[font.display, { color: color.text }]}>
-                Hi, {user?.first_name ?? 'there'}
-              </Text>
-            </View>
-            <ThemeToggle />
-          </View>
+          <Pill label={agentInfo ? 'Local agent' : 'Discovery'} tone="accent" />
+        </Tile>
+        <View style={styles.column}>
+          <Tile title={`${list.length}`} caption="Connected" numeric tint={hue.slate}>
+            <Text style={[font.eyebrow, { color: color.textFaint }]}>Cameras</Text>
+          </Tile>
+          <Tile title={`${streaming}`} caption="Online now" numeric tint={hue.amber}>
+            <Pill
+              label={streaming ? 'Live' : 'Idle'}
+              tone={streaming ? 'live' : 'idle'}
+              dot
+            />
+          </Tile>
+        </View>
+      </View>
 
-          <View style={styles.bento}>
-            <Tile
-              title="Add a camera"
-              caption="Scan your network"
-              featured
-              onPress={() => router.push('/onboarding')}
-              style={styles.wide}
-            >
-              <Pill label={agentInfo ? 'Local agent' : 'Discovery'} tone="accent" />
-            </Tile>
-            <View style={styles.column}>
-              <Tile title={`${cameras.length}`} caption="Connected" numeric tint={hue.violet}>
-                <Text style={[font.eyebrow, { color: color.textFaint }]}>Cameras</Text>
-              </Tile>
-              <Tile title={`${streaming}`} caption="Streaming now" numeric tint={hue.orange}>
-                <Pill
-                  label={streaming ? 'Live' : 'Idle'}
-                  tone={streaming ? 'live' : 'idle'}
-                  dot
-                />
-              </Tile>
-            </View>
-          </View>
+      <View style={styles.listHeader}>
+        <Text style={[font.heading, { color: color.text }]}>Your cameras</Text>
+        <Text style={[font.caption, { color: color.textMuted }]}>Pull to refresh</Text>
+      </View>
 
-          {error ? <Banner tone="error" title="Couldn't load cameras" message={error} /> : null}
+      {cameras === null && !error ? (
+        <>
+          <SkeletonCard lines={3} />
+          <SkeletonCard lines={3} />
+        </>
+      ) : null}
 
-          <View style={styles.listHeader}>
-            <Text style={[font.heading, { color: color.text }]}>Your cameras</Text>
-            <Text style={[font.caption, { color: color.textMuted }]}>Pull to refresh</Text>
-          </View>
+      {error ? (
+        <EmptyState
+          tone="error"
+          icon="offline"
+          title="Couldn't load cameras"
+          hint={error}
+          action={<Button label="Try again" variant="secondary" onPress={load} />}
+        />
+      ) : null}
 
-          {!error && cameras.length === 0 ? (
-            <View style={[styles.empty, { borderColor: color.border }]}>
-              <Text style={[font.heading, { color: color.text }]}>Nothing connected yet</Text>
-              <Text style={[font.caption, styles.emptyText, { color: color.textMuted }]}>
-                Run discovery to find the cameras on your local network.
-              </Text>
-            </View>
-          ) : null}
+      {!error && cameras && cameras.length === 0 ? (
+        <EmptyState
+          icon="camera"
+          title="Nothing connected yet"
+          hint="Find the cameras on your local network and connect them."
+          action={<Button label="Find cameras" variant="secondary" onPress={() => router.push('/onboarding')} />}
+        />
+      ) : null}
 
-          {cameras.map((camera) => {
-            const live = relayConfigured && !!camera.stream_reference;
-            return (
-              <Card
-                key={camera.camera_id}
-                glow={live}
-                tint={live ? hue.teal : undefined}
-                onPress={() => router.push('/(tabs)/live')}
+      {list.map((camera) => {
+        const live = camera.connection_status === 'CONNECTED';
+        return (
+          <Card
+            key={camera.camera_id}
+            glow={live}
+            tint={live ? hue.jade : undefined}
+            onPress={() => router.push('/(tabs)/live')}
+          >
+            <View style={styles.cardTop}>
+              <Text
+                numberOfLines={1}
+                style={[font.heading, styles.cardTitle, { color: color.text }]}
               >
-                <View style={styles.cardTop}>
-                  <Text
-                    numberOfLines={1}
-                    style={[font.heading, styles.cardTitle, { color: color.text }]}
-                  >
-                    {camera.display_name}
-                  </Text>
-                  <Pill
-                    label={live ? 'Live' : 'No stream'}
-                    tone={live ? 'live' : 'idle'}
-                    dot
-                  />
-                </View>
-                <Text style={[font.caption, { color: color.textMuted }]}>
-                  {[camera.manufacturer, camera.model, camera.ip].filter(Boolean).join(' · ')}
-                </Text>
-                {camera.resolution ? (
-                  <Text style={[font.mono, styles.spec, { color: color.textFaint }]}>
-                    {camera.resolution}
-                  </Text>
-                ) : null}
-              </Card>
-            );
-          })}
-        </ScrollView>
-      </SafeAreaView>
-    </View>
+                {camera.display_name}
+              </Text>
+              <Pill
+                label={live ? 'Live' : 'No stream'}
+                tone={live ? 'live' : 'idle'}
+                dot
+              />
+            </View>
+            <Text style={[font.caption, { color: color.textMuted }]}>
+              {[camera.manufacturer, camera.model, camera.ip].filter(Boolean).join(' · ')}
+            </Text>
+            {camera.resolution ? (
+              <Text style={[font.mono, styles.spec, { color: color.textFaint }]}>
+                {camera.resolution}
+              </Text>
+            ) : null}
+          </Card>
+        );
+      })}
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
-  safe: { flex: 1 },
-  scroll: { padding: space.xl, gap: space.md, paddingBottom: space.xxl },
-  greeting: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: space.md,
-    marginBottom: space.sm,
-  },
-  greetingText: { flex: 1, gap: 6 },
   bento: { flexDirection: 'row', gap: space.md, marginBottom: space.sm },
   wide: { flex: 1.25 },
   column: { flex: 1, gap: space.md },
@@ -181,14 +169,4 @@ const styles = StyleSheet.create({
   },
   cardTitle: { flex: 1 },
   spec: { fontSize: 12 },
-  empty: {
-    alignItems: 'center',
-    gap: space.sm,
-    paddingVertical: space.xxl,
-    paddingHorizontal: space.lg,
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderRadius: radius.xl,
-  },
-  emptyText: { textAlign: 'center' },
 });

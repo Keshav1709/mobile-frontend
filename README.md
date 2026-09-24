@@ -23,30 +23,55 @@ at that machine's LAN address — never `127.0.0.1`. Open
 
 ## Sign-in
 
-Google uses `expo-auth-session`; phone uses Firebase phone auth, whose reCAPTCHA
-step is hosted in a WebView (`src/components/RecaptchaModal.tsx`). Fill in
-`EXPO_PUBLIC_FIREBASE_*` and the Google client IDs in `.env` to enable both.
+Email + password against the same Firebase project as the dashboard. There is
+no sign-up in the app: accounts are created by an administrator on the
+dashboard, and the app only signs them in. Google appears only when a native
+OAuth client id is configured (`EXPO_PUBLIC_GOOGLE_*_CLIENT_ID`).
 
-With those blank the app runs in **development mode**: sign-in mints an
-unverified token that the cloud registry accepts while `CLOUD_ENV` is not
-`production`, and any 6-digit code passes. Native Google sign-in additionally
-needs `google-services.json` (Android, with a SHA-1 fingerprint) and
-`GoogleService-Info.plist` (iOS) in a development build.
+With the Firebase keys blank the app runs in **development mode**: sign-in
+mints an unverified token that the registry accepts only while `CLOUD_ENV` is
+not `production`. `EXPO_PUBLIC_*` values are inlined at build time: after
+changing `.env`, restart with `npx expo start -c`.
+
+## ZeroForg Box
+
+Settings → ZeroForg Box (or the menu) binds a box to the workspace by the
+6-character code it shows on `http://<box>:8765/pair`, then reports whether it
+is online, on the factory network and talking to the cloud, from the
+registry's `GET /api/devices`. No first-run wizard: the app opens straight to
+Home after sign-in.
+
+## Areas
+
+`app/zones/[cameraId].tsx` is the dashboard's `ZoneEditorPanel` + `ZoneCanvas`
+for touch: choose what the area is, tap points around it on a still frame from
+the relay (`api/frame.jpeg`, or a grid when there is no stream), tap the first
+point again to close, save. Polygons are normalised and stored on the camera in
+the registry (`PUT /api/cameras/{id}/zones`), which is what the box polls.
+Reachable from the setup step, **Profile → Camera areas**, and **Edit areas**
+in a camera's settings panel on Live.
+
+Every page has a back control (`goBack(fallback)` in `src/lib/helpers.ts`):
+back to the previous page, or to the page that logically precedes it when the
+page was reached by a redirect.
 
 ## Layout
 
 ```
 app/                       expo-router routes
-  index.tsx                gate: sign-in -> pair agent -> cameras
-  sign-in.tsx              Google + phone number
-  verify-otp.tsx           6-digit code
-  connect-agent.tsx        agent address, QR scan, Test and continue
-  cameras/                 registry list and camera detail (live view, test, remove)
+  index.tsx                gate: sign-in -> app
+  sign-in.tsx              email + password (Google when configured)
+  create-profile.tsx       edit profile
+  box.tsx                  bind a ZeroForg Box, connection checks
+  settings.tsx             appearance, workspace, account, box
+  zones/                   camera list -> area editor
   onboarding/              add -> discovery -> credentials -> connecting -> success
+  (tabs)/                  home, live, add, profile, ai, alerts
 src/
   api/                     typed clients for the agent and cloud, error copy
-  state/                   auth, agent address, in-flight onboarding draft
-  components/              Screen, Button, TextField, Card, Banner, StageList
+  state/                   auth (profile + setup status), agent address, camera draft
+  components/              Screen, Button, TextField, Card, Banner, StageList, ZoneCanvas, BottomSheet, ListRow
+  lib/zones.ts             ZonePolygon types, area labels, geometry (ported from the dashboard)
   theme.ts                 design tokens
 ```
 

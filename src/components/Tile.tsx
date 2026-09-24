@@ -5,7 +5,7 @@ import { Animated, Pressable, StyleSheet, Text, View, ViewStyle } from 'react-na
 import { DotNumber } from '@/components/DotNumber';
 import { Glow } from '@/components/Glow';
 import { useTheme } from '@/state/theme';
-import { font, radius, space } from '@/theme';
+import { family, font, radius, space } from '@/theme';
 
 type Props = {
   title: string;
@@ -148,5 +148,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  arrowGlyph: { fontSize: 15, fontWeight: '600' },
+  arrowGlyph: { fontSize: 15, fontFamily: family.semibold },
 });
