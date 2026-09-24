@@ -1,4 +1,5 @@
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback } from 'react';
 import { RefreshControl, StyleSheet, Text, View } from 'react-native';
 
 import { Banner } from '@/components/Banner';
@@ -21,7 +22,15 @@ export default function Home() {
   const { color } = useTheme();
   const { user } = useAuth();
   const { info: agentInfo } = useAgent();
-  const { cameras: list, status, error, cachedAt, refreshing, refresh, select } = useCameras();
+  const { cameras: list, status, error, cachedAt, refreshing, refresh, refreshIfStale, select } =
+    useCameras();
+
+  // A camera added in onboarding has to be here when the flow lands back.
+  useFocusEffect(
+    useCallback(() => {
+      refreshIfStale();
+    }, [refreshIfStale]),
+  );
 
   // Online = the dashboard has heard from it recently; the same test the web wall uses.
   const streaming = list.filter((camera) => camera.connection_status === 'CONNECTED').length;

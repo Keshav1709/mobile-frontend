@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
-import { useRef, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
@@ -42,7 +42,14 @@ export default function Live() {
     error: listError,
     cachedAt,
     refresh,
+    refreshIfStale,
   } = useCameras();
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshIfStale();
+    }, [refreshIfStale]),
+  );
 
   const [showInfo, setShowInfo] = useState(false);
   const [hd, setHd] = useState(false);

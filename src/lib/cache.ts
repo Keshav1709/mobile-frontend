@@ -43,14 +43,6 @@ export async function writeCache<T>(key: string, data: T): Promise<void> {
   }
 }
 
-export async function dropCache(key: string): Promise<void> {
-  try {
-    await AsyncStorage.removeItem(PREFIX + key);
-  } catch {
-    // Nothing to do; the entry is version-checked on read anyway.
-  }
-}
-
 /** Everything this login cached. Cleared on sign-out so the next account starts clean. */
 export async function clearCache(): Promise<void> {
   try {
@@ -74,9 +66,6 @@ export const cacheKey = {
     `alerts.${orgId ?? 'default'}.${siteId ?? 'all'}`,
   frame: (cameraId: string) => `frame.${cameraId}`,
 };
-
-/** How old a cached answer may be before a screen stops calling it current. */
-export const STALE_AFTER_MS = 5 * 60 * 1000;
 
 /** "2 minutes ago", for the line that tells someone what they are looking at. */
 export function agoLabel(at: number): string {

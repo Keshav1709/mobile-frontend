@@ -30,6 +30,9 @@ import { useConsole } from '@/state/console';
  * which is the difference between a degraded screen and an empty one.
  */
 
+/** How long a freshly fetched list is treated as current when a screen refocuses. */
+const FRESH_FOR_MS = 20000;
+
 type Status = 'loading' | 'ready' | 'error';
 
 type CamerasValue = {
@@ -41,6 +44,12 @@ type CamerasValue = {
   /** True while a refresh is in flight behind content that is already showing. */
   refreshing: boolean;
   refresh: () => Promise<void>;
+  /**
+   * Refresh only if what is on screen has had time to go out of date. Screens
+   * call this when they come back into focus: a camera added in onboarding has
+   * to appear, but flicking between two tabs should not re-ask every time.
+   */
+  refreshIfStale: () => void;
   /** The camera the person was last looking at, restored across launches. */
   selectedId: string | null;
   selected: Camera | null;
@@ -62,6 +71,8 @@ export function CamerasProvider({ children }: { children: ReactNode }) {
 
   // Guards a slow response for the previous org from landing on the new one.
   const generation = useRef(0);
+  // When the list on screen was last accepted from the network.
+  const fetchedAt = useRef(0);
 
   // Serve whatever this device already knows before asking anyone.
   useEffect(() => {
@@ -96,6 +107,7 @@ export function CamerasProvider({ children }: { children: ReactNode }) {
       setCachedAt(null);
       setError(null);
       setStatus('ready');
+      fetchedAt.current = Date.now();
       void writeCache(cacheKey.cameras(orgId), list);
     } catch (cause) {
       if (generation.current !== mine) return;
@@ -116,6 +128,7 @@ export function CamerasProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (authStatus === 'signedOut') {
       generation.current += 1;
+      fetchedAt.current = 0;
       setCameras([]);
       setSelectedId(null);
       setCachedAt(null);
@@ -123,6 +136,11 @@ export function CamerasProvider({ children }: { children: ReactNode }) {
       setStatus('loading');
     }
   }, [authStatus]);
+
+  const refreshIfStale = useCallback(() => {
+    if (Date.now() - fetchedAt.current < FRESH_FOR_MS) return;
+    void refresh();
+  }, [refresh]);
 
   const select = useCallback(
     (cameraId: string) => {
@@ -143,11 +161,12 @@ export function CamerasProvider({ children }: { children: ReactNode }) {
       cachedAt,
       refreshing,
       refresh,
+      refreshIfStale,
       selectedId: selected?.camera_id ?? null,
       selected,
       select,
     };
-  }, [cameras, status, error, cachedAt, refreshing, refresh, selectedId, select]);
+  }, [cameras, status, error, cachedAt, refreshing, refresh, refreshIfStale, selectedId, select]);
 
   return <CamerasContext.Provider value={value}>{children}</CamerasContext.Provider>;
 }
