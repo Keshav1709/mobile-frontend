@@ -262,7 +262,7 @@ export default function Attendance() {
               <Icon name={neverSeen ? 'warning' : 'info'} size={14} color={color.textFaint} />
               <Text style={[font.body, styles.fill, { color: color.textMuted }]}>
                 {neverSeen
-                  ? `No one has ever been recognised here, though ${board.enrolled_total} people are enrolled — worth checking the cameras.`
+                  ? `No one has ever been recognised here, though ${board.enrolled_total} people are enrolled. Worth checking the cameras.`
                   : quiet
                     ? lastActive
                       ? `Nothing yet today · ${dayLabel(lastActive.date)} ${lastActive.people} were in`
@@ -333,7 +333,7 @@ export default function Attendance() {
                       value: `${board.on_time_rate.toFixed(1)}%`,
                       tone: board.on_time_rate > 0 ? 'good' : 'default',
                     },
-                    { label: 'Avg arrival', value: board.avg_arrival ?? '—' },
+                    { label: 'Avg arrival', value: board.avg_arrival ?? 'No data' },
                     { label: 'Greetings', value: String(board.greetings_today) },
                   ]}
                 />

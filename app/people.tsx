@@ -209,7 +209,7 @@ export default function People() {
                           {seen(cluster.last_seen)}
                         </Text>
                       </View>
-                      <Pill label={cluster.status ?? '—'} tone="idle" />
+                      <Pill label={cluster.status ?? 'Unknown'} tone="idle" />
                     </View>
                   ))}
                 </View>

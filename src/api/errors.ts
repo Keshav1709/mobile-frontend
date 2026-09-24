@@ -17,7 +17,7 @@ const COPY: Record<string, string> = {
   TIMEOUT: 'The camera took too long to respond.',
   NETWORK_ERROR: "We couldn't reach the service. Check your connection and try again.",
   DATABASE_UNREACHABLE:
-    "Zero Forg can't reach your workspace data right now. It should come back on its own \u2014 try again shortly.",
+    "Zero Forg can't reach your workspace data right now. It usually comes back on its own. Try again shortly.",
   SERVER_ERROR: 'The service had a problem. Try again in a moment.',
   UNKNOWN_ERROR: 'Something went wrong.',
 

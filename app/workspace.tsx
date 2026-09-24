@@ -179,28 +179,28 @@ export default function Workspace() {
             <DetailList
               title="Attendance board"
               rows={[
-                { label: 'On-time cutoff', value: String(attendance.on_time_cutoff ?? '—') },
+                { label: 'On-time cutoff', value: String(attendance.on_time_cutoff ?? 'Not set') },
                 {
                   label: 'Active hours',
                   value: Array.isArray(attendance.active_hours)
                     ? `${attendance.active_hours[0]}:00 – ${attendance.active_hours[1]}:00`
-                    : '—',
+                    : 'Not set',
                 },
-                { label: 'Match threshold', value: String(attendance.min_score ?? '—') },
+                { label: 'Match threshold', value: String(attendance.min_score ?? 'Not set') },
                 {
                   label: 'Arrival cameras',
-                  value: (attendance.arrival_camera_names as string[] | undefined)?.join(', ') ?? '—',
+                  value: (attendance.arrival_camera_names as string[] | undefined)?.join(', ') ?? 'None',
                 },
                 {
                   label: 'Counts people in',
                   value:
-                    (attendance.occupancy_in_camera_names as string[] | undefined)?.join(', ') ?? '—',
+                    (attendance.occupancy_in_camera_names as string[] | undefined)?.join(', ') ?? 'None',
                 },
                 {
                   label: 'Counts people out',
                   value:
                     (attendance.occupancy_out_camera_names as string[] | undefined)?.join(', ') ??
-                    '—',
+                    'None',
                 },
               ]}
             />
