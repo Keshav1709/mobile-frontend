@@ -3,10 +3,12 @@ import { AppState, Image, StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 import { dashboardApi } from '@/api/dashboard';
+import { DetectionOverlay } from '@/components/DetectionOverlay';
 import { Pill } from '@/components/Pill';
 import { agoLabel, cacheKey, readCache, writeCache } from '@/lib/cache';
 import { useAuth } from '@/state/auth';
 import { useConsole } from '@/state/console';
+import { useLive } from '@/state/live';
 import { useTheme } from '@/state/theme';
 import { font, radius, space } from '@/theme';
 
@@ -224,6 +226,23 @@ function FramePlayer({
 }) {
   const { color } = useTheme();
   const { orgId } = useConsole();
+  const live = useLive();
+
+  /**
+   * The websocket's view of this camera. Detections arrive many times a second
+   * while the JPEG below refreshes every couple of seconds, so the boxes are
+   * what make the tile read as live. `frame.at` is also a better liveness
+   * signal than a poll succeeding: it is the edge saying when it last saw
+   * anything, which is what the web console's tile uses.
+   *
+   * The socket streams the account's default centre, not necessarily the one on
+   * screen, so nothing is drawn unless the two agree. Boxes from another site
+   * over this site's picture would be worse than no boxes at all.
+   */
+  const liveHere = live.isConnected && (!live.forOrgId || live.forOrgId === orgId);
+  const dets = liveHere ? live.detectionsByCamera[cameraId] ?? [] : [];
+  const frameInfo = liveHere ? live.frameByCamera[cameraId] : undefined;
+  const socketFresh = frameInfo ? Date.now() - frameInfo.at < 15000 : dets.length > 0;
 
   // Double buffer: `front` is what is shown; the next frame loads into `back` and
   // becomes `front` only in its onLoad. The one that just went behind is then given
@@ -306,10 +325,13 @@ function FramePlayer({
           onError={failed}
         />
       ) : null}
+      {/* Above the picture, below the badge. */}
+      {dets.length ? <DetectionOverlay detections={dets} frame={frameInfo} /> : null}
+
       {!front && !showingPoster ? (
         <View style={styles.centre}>
           <Text style={[font.caption, { color: color.textFaint }]}>
-            {down
+            {down && !socketFresh
               ? 'This camera has not sent a picture. Still trying.'
               : 'Waiting for the first frame…'}
           </Text>
