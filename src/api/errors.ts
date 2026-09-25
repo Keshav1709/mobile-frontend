@@ -29,6 +29,9 @@ const COPY: Record<string, string> = {
   PERMISSION_DENIED:
     "Your role doesn't include this. Ask your administrator to give you access on the dashboard.",
   NOT_ENABLED: 'This is not switched on for your organisation. Ask your administrator to enable it.',
+  // Not a refusal: the dashboard briefly could not resolve the account. Retried
+  // once already by the client, so by the time this shows it really is sticking.
+  NOT_PROVISIONED: 'Your workspace is still waking up. Pull down to try again.',
   NOT_PURCHASED:
     'This is not part of your plan. Talk to your Zero Forg account manager about adding it.',
   NOT_FOUND: "We couldn't find that. It may have been removed.",

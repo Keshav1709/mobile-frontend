@@ -10,6 +10,9 @@ type Options = {
   timeoutMs?: number;
 };
 
+/** Long enough for the dashboard's user lookup to warm, short enough not to be felt. */
+const RETRY_DELAY_MS = 400;
+
 /**
  * Single fetch wrapper for both services. Always resolves errors into the
  * `{ code, message }` contract so screens never branch on transport details.
@@ -18,6 +21,7 @@ export async function request<T>(
   baseUrl: string,
   path: string,
   { method = 'GET', body, headers, timeoutMs = 15000 }: Options = {},
+  retries = 1,
 ): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -44,6 +48,13 @@ export async function request<T>(
 
   if (!response.ok) {
     const error = errorFrom(payload, response.status);
+    // The dashboard intermittently refuses a perfectly good token with
+    // "User is not provisioned" — observed 1 failure in 5 against production,
+    // seconds apart, same token. Retry once rather than show a refusal.
+    if (error.code === 'NOT_PROVISIONED' && retries > 0) {
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+      return request<T>(baseUrl, path, { method, body, headers, timeoutMs }, retries - 1);
+    }
     // One place decides what an expired session means, instead of every screen
     // showing a message the person cannot act on.
     if (error.code === 'UNAUTHENTICATED') reportUnauthenticated();
@@ -97,6 +108,11 @@ function codeFor(status: number, detail?: string): string {
   if (status === 401) return 'UNAUTHENTICATED';
   if (status === 402) return 'NOT_PURCHASED';
   if (status === 403) {
+    // "User is not provisioned" is a third meaning again, and a transient one:
+    // the same token on the same endpoint answers 200 a second later. Reading
+    // it as a permission refusal sends somebody to their administrator over a
+    // backend hiccup, so it gets its own code and one silent retry above.
+    if (detail && /\bnot provisioned\b/i.test(detail)) return 'NOT_PROVISIONED';
     return detail && /\bnot (enabled|available|configured)\b/i.test(detail)
       ? 'NOT_ENABLED'
       : 'PERMISSION_DENIED';

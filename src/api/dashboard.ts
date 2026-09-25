@@ -1,6 +1,7 @@
 import { request } from './client';
 import { DASHBOARD_URL, activeOrgId, consoleApi, headers } from './console';
 import { RequestError } from './errors';
+import type { LiveCamera } from '@/lib/cameraHealth';
 import type {
   Alert,
   AlertsPage,
@@ -480,6 +481,15 @@ export const dashboardApi = {
   frameUrl: (cameraId: string, idToken?: string | null) =>
     `${DASHBOARD_URL}/vms/cameras/${cameraId}/stream?t=${Date.now()}` +
     (idToken ? `&token=${encodeURIComponent(idToken)}` : ''),
+
+  /**
+   * Per-camera health, from presence rather than the stale `cameras.status`
+   * column. `live.view` gated, same as the Live wall. See lib/cameraHealth.
+   */
+  liveCameras: (idToken: string) =>
+    request<{ cameras: LiveCamera[] }>(DASHBOARD_URL, '/console/live/cameras', {
+      headers: headers(idToken),
+    }).then((body) => body.cameras ?? []),
 
   /** Headers a native image loader should send for `frameUrl`, where it honours them. */
   frameHeaders: (idToken: string) => headers(idToken),

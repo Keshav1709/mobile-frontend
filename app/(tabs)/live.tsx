@@ -1,9 +1,10 @@
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 import { cloudApi } from '@/api/cloud';
+import { dashboardApi } from '@/api/dashboard';
 import { Banner } from '@/components/Banner';
 import { BottomSheet } from '@/components/BottomSheet';
 import { Button } from '@/components/Button';
@@ -21,16 +22,21 @@ import { move, stop } from '@/onvif/ptz';
 import { livePlayerUrl, streamNames, unpublishStream } from '@/onvif/relay';
 import { haptic } from '@/lib/haptics';
 import { agoLabel } from '@/lib/cache';
+import { healthDescription, healthOf, healthLabel } from '@/lib/cameraHealth';
+import type { CameraHealth, LiveCamera } from '@/lib/cameraHealth';
 import { useAgent } from '@/state/agent';
 import { useAuth } from '@/state/auth';
 import { useCameras } from '@/state/cameras';
+import { useConsole } from '@/state/console';
 import { forgetCredentials, loadCredentials } from '@/state/cameraCredentials';
 import { useTheme } from '@/state/theme';
 import { useToast } from '@/state/toast';
 import { font, radius, space } from '@/theme';
+import type { Palette } from '@/theme';
 
 export default function Live() {
-  const { readOnly } = useAuth();
+  const { readOnly, idToken, getToken } = useAuth();
+  const { orgId } = useConsole();
   const { api: agent, info: agentInfo, relayUrl } = useAgent();
   const { color } = useTheme();
   const toast = useToast();
@@ -56,8 +62,44 @@ export default function Live() {
   const [error, setError] = useState<string | null>(null);
   const [panning, setPanning] = useState<Direction | null>(null);
   const [removing, setRemoving] = useState(false);
+  const [presence, setPresence] = useState<Record<string, LiveCamera>>({});
   const ptzSupported = useRef(true);
   const credentials = useRef<{ id: string; value: Credentials | null } | null>(null);
+
+  /**
+   * Which cameras are actually sending, refreshed while this screen is open.
+   *
+   * Kept separate from the camera list because the list is cached for offline
+   * use and health is only meaningful now. A failure leaves the previous answer
+   * standing rather than turning every dot grey on one dropped request.
+   */
+  useEffect(() => {
+    let live = true;
+    const tick = async () => {
+      const token = (await getToken()) ?? idToken;
+      if (!token || !live) return;
+      try {
+        const rows = await dashboardApi.liveCameras(token);
+        if (!live) return;
+        setPresence(Object.fromEntries(rows.map((row) => [row.id, row])));
+      } catch {
+        // Leave the last known health in place.
+      }
+    };
+    void tick();
+    const timer = setInterval(tick, 20000);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [idToken, getToken, orgId]);
+
+  const healthFor = useMemo(
+    () => (id: string): CameraHealth => healthOf(presence[id]),
+    [presence],
+  );
+
+  const selectedHealth = healthFor(camera?.camera_id ?? '');
 
   const loading = status === 'loading';
   // On the site's own network with the box relaying this camera, the phone can play
@@ -235,9 +277,15 @@ export default function Live() {
 
       <View style={styles.controls}>
         <Pill
-          label={lan ? 'On site' : camera.connection_status === 'CONNECTED' ? 'Via cloud' : 'Camera offline'}
-          tone={camera.connection_status === 'CONNECTED' ? 'live' : 'idle'}
-          dot
+          label={
+            lan
+              ? 'On site'
+              : selectedHealth === 'live'
+                ? 'Via cloud'
+                : healthLabel[selectedHealth]
+          }
+          tone={PILL_TONE[selectedHealth]}
+          dot={selectedHealth === 'live'}
         />
         {lan ? (
         <View style={[styles.quality, { backgroundColor: color.surface, borderColor: color.border }]}>
@@ -350,12 +398,12 @@ export default function Live() {
           >
             {cameras.map((item) => {
               const current = item.camera_id === camera.camera_id;
-              const online = item.connection_status === 'CONNECTED';
+              const health = healthFor(item.camera_id);
               return (
                 <Pressable
                   key={item.camera_id}
                   accessibilityRole="button"
-                  accessibilityLabel={item.display_name}
+                  accessibilityLabel={`${item.display_name}, ${healthDescription[health]}`}
                   accessibilityState={{ selected: current }}
                   onPress={() => {
                     if (current) return;
@@ -373,7 +421,7 @@ export default function Live() {
                   <View
                     style={[
                       styles.switchDot,
-                      { backgroundColor: online ? color.success : color.textFaint },
+                      { backgroundColor: DOT[health](color) },
                     ]}
                   />
                   <Text
@@ -395,6 +443,27 @@ export default function Live() {
     </Screen>
   );
 }
+
+/**
+ * Green it is sending, amber it has stopped but only just, red go and look at it.
+ * Grey is "turned off" or "not known yet" — neither is a fault to chase.
+ */
+/** The same three states, said in the pill above the controls. */
+const PILL_TONE: Record<CameraHealth, 'live' | 'warning' | 'danger' | 'idle'> = {
+  live: 'live',
+  stalled: 'warning',
+  down: 'danger',
+  disabled: 'idle',
+  unknown: 'idle',
+};
+
+const DOT: Record<CameraHealth, (c: Palette) => string> = {
+  live: (c) => c.success,
+  stalled: (c) => c.warning,
+  down: (c) => c.danger,
+  disabled: (c) => c.textFaint,
+  unknown: (c) => c.textFaint,
+};
 
 const styles = StyleSheet.create({
   playerSkeleton: { width: '100%', aspectRatio: 16 / 9, borderRadius: radius.xl },
