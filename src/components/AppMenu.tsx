@@ -100,9 +100,11 @@ const SECTIONS: Section[] = [
 export function AppMenu({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const { color, gradient } = useTheme();
   const { user, signOut, readOnly } = useAuth();
-  const { can, orgName, canSwitchOrg } = useConsole();
+  const { can, orgName, canSwitchOrg, organizations, orgId, selectOrg, status } = useConsole();
   const insets = useSafeAreaInsets();
   const [mounted, setMounted] = useState(visible);
+  /** The site list under the drawer header, closed until asked for. */
+  const [sitesOpen, setSitesOpen] = useState(false);
   const slide = useRef(new Animated.Value(-WIDTH)).current;
   const backdrop = useRef(new Animated.Value(0)).current;
 
@@ -127,15 +129,32 @@ export function AppMenu({ visible, onClose }: { visible: boolean; onClose: () =>
           useNativeDriver: true,
         }),
         Animated.timing(backdrop, { toValue: 0, duration: 200, useNativeDriver: true }),
-      ]).start(() => setMounted(false));
+      ]).start(() => {
+        setMounted(false);
+        // Dismissing by the backdrop leaves the site list open otherwise, and
+        // the drawer reopens already expanded over the rest of the menu.
+        setSitesOpen(false);
+      });
     }
   }, [visible, mounted, slide, backdrop]);
 
   if (!mounted) return null;
 
   const go = (route: string) => {
+    setSitesOpen(false);
     onClose();
     router.push(route as never);
+  };
+
+  /**
+   * Switching site reloads the manifest, and with it permissions, the camera
+   * list and every screen's data. Close the drawer so the person lands on a
+   * refreshed screen rather than watching it change underneath an open menu.
+   */
+  const chooseSite = async (id: string) => {
+    setSitesOpen(false);
+    onClose();
+    if (id !== orgId) await selectOrg(id);
   };
 
   const leave = () => {
@@ -192,7 +211,13 @@ export function AppMenu({ visible, onClose }: { visible: boolean; onClose: () =>
 
           <Pressable
             accessibilityRole="button"
-            onPress={() => go('/(tabs)/profile')}
+            accessibilityState={canSwitchOrg ? { expanded: sitesOpen } : undefined}
+            accessibilityLabel={
+              canSwitchOrg ? `${workspace}. Switch site` : `${workspace}. Open workspace`
+            }
+            onPress={() =>
+              canSwitchOrg ? setSitesOpen((open) => !open) : go('/(tabs)/profile')
+            }
             style={[styles.workspace, { backgroundColor: color.surfaceRaised, borderColor: color.border }]}
           >
             <View style={[styles.avatar, { backgroundColor: color.accentSoft }]}>
@@ -204,8 +229,45 @@ export function AppMenu({ visible, onClose }: { visible: boolean; onClose: () =>
               <Text numberOfLines={1} style={[font.heading, { color: color.text }]}>{workspace}</Text>
               <Pill label={canSwitchOrg ? 'Switch site' : 'Workspace'} tone="accent" />
             </View>
-            <Icon name="forward" size={18} color={color.textFaint} />
+            <Icon
+              name={canSwitchOrg ? (sitesOpen ? 'collapse' : 'expand') : 'forward'}
+              size={18}
+              color={color.textFaint}
+            />
           </Pressable>
+
+          {canSwitchOrg && sitesOpen ? (
+            <View style={[styles.sites, { backgroundColor: color.surface, borderColor: color.border }]}>
+              {organizations.map((org) => {
+                const id = org.orgId ?? org.id;
+                const active = id === orgId;
+                return (
+                  <Pressable
+                    key={id}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: active, disabled: status === 'loading' }}
+                    disabled={status === 'loading'}
+                    onPress={() => void chooseSite(id)}
+                    style={({ pressed }) => [
+                      styles.siteRow,
+                      {
+                        backgroundColor: pressed || active ? color.accentSoft : 'transparent',
+                        borderBottomColor: color.border,
+                      },
+                    ]}
+                  >
+                    <Text
+                      numberOfLines={1}
+                      style={[font.body, styles.fill, { color: active ? color.accent : color.text }]}
+                    >
+                      {org.name}
+                    </Text>
+                    {active ? <Icon name="checkCircle" size={16} color={color.accent} /> : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
 
           <ScrollView contentContainerStyle={styles.sections} showsVerticalScrollIndicator={false}>
             {sections.map((section) => (
@@ -287,6 +349,22 @@ const styles = StyleSheet.create({
     paddingBottom: space.lg,
   },
   mark: { width: 18, height: 18, borderRadius: 5 },
+  sites: {
+    marginHorizontal: space.lg,
+    marginTop: space.sm,
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+  },
+  siteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    paddingHorizontal: space.md,
+    paddingVertical: space.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  fill: { flex: 1 },
   workspace: {
     flexDirection: 'row',
     alignItems: 'center',

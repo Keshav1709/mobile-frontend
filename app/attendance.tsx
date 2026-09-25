@@ -22,6 +22,9 @@ import { useTheme } from '@/state/theme';
 import { font, radius, space } from '@/theme';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
+const TROPHY = '🏆';
+/** How many names each leaderboard shows, as the web console shows them. */
+const BOARD_SIZE = 5;
 /** The board is a live instrument; the dashboard re-reads on the same cadence. */
 const POLL_MS = 15000;
 
@@ -176,6 +179,35 @@ export default function Attendance() {
     }
     return null;
   }, [stats, quiet, board?.date]);
+
+  /**
+   * Punctuality stars: who was through the door earliest today.
+   *
+   * Read off the roster's `first_seen` rather than `recent_arrivals`, because
+   * the latter is newest-first and the backend caps it at eight. On a busy day
+   * the earliest arrivals are exactly the ones that list has already dropped.
+   * `first_seen` is "HH:MM", so it sorts correctly as plain text.
+   */
+  const punctual = useMemo(
+    () =>
+      (board?.roster ?? [])
+        .filter((row): row is typeof row & { first_seen: string } => !!row.first_seen)
+        .map((row) => ({ person: row.person, at: row.first_seen }))
+        .sort((a, b) => a.at.localeCompare(b.at))
+        .slice(0, BOARD_SIZE),
+    [board?.roster],
+  );
+
+  /** Commitment stars: most days present over the same window the other boards use. */
+  const committed = useMemo(
+    () =>
+      ranking
+        .filter((entry) => entry.days_present > 0)
+        .slice()
+        .sort((a, b) => b.days_present - a.days_present || a.person.localeCompare(b.person))
+        .slice(0, BOARD_SIZE),
+    [ranking],
+  );
 
   /** A workspace that has never had a check-in is a setup problem, not a quiet day. */
   const neverSeen = useMemo(
@@ -343,15 +375,11 @@ export default function Attendance() {
                 <SectionRule
                   label="Recent arrivals"
                   meta={board.recent_arrivals.length ? `${board.recent_arrivals.length} today` : undefined}
-                  glyph={board.recent_arrivals.length ? <Text>{MEDALS[0]}</Text> : undefined}
                 />
                 {board.recent_arrivals.length ? (
                   <View style={styles.rows}>
-                    {board.recent_arrivals.map((arrival, index) => (
+                    {board.recent_arrivals.map((arrival) => (
                       <View key={`${arrival.person}-${arrival.at}`} style={styles.personRow}>
-                        <Text style={[font.mono, styles.rank, { color: color.textFaint }]}>
-                          {MEDALS[index] ?? index + 1}
-                        </Text>
                         <Face name={arrival.person} photo={arrival.photo} size={32} />
                         <View style={styles.fill}>
                           <Text style={[font.body, { color: color.text }]} numberOfLines={1}>
@@ -500,6 +528,58 @@ export default function Attendance() {
                   </View>
                 </Panel>
               ) : null}
+
+              <Panel>
+                <SectionRule
+                  label="Punctuality stars"
+                  subtitle="earliest today"
+                  glyph={punctual.length ? <Text>{MEDALS[0]}</Text> : undefined}
+                />
+                {punctual.length ? (
+                  <View style={styles.rows}>
+                    {punctual.map((entry, index) => (
+                      <View key={entry.person} style={styles.personRow}>
+                        <Text style={[font.mono, styles.rank, { color: color.textFaint }]}>
+                          {MEDALS[index] ?? index + 1}
+                        </Text>
+                        <Text style={[font.body, styles.fill, { color: color.text }]} numberOfLines={1}>
+                          {entry.person}
+                        </Text>
+                        <Text style={[font.mono, { color: color.textMuted }]}>{entry.at}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <Hollow text="No one has arrived yet today." />
+                )}
+              </Panel>
+
+              <Panel>
+                <SectionRule
+                  label="Commitment stars"
+                  subtitle={`last ${stats?.window_days ?? statsDays} days`}
+                  glyph={committed.length ? <Text>{TROPHY}</Text> : undefined}
+                />
+                {committed.length ? (
+                  <View style={styles.rows}>
+                    {committed.map((entry, index) => (
+                      <View key={entry.person} style={styles.personRow}>
+                        <Text style={[font.mono, styles.rank, { color: color.textFaint }]}>
+                          {MEDALS[index] ?? index + 1}
+                        </Text>
+                        <Text style={[font.body, styles.fill, { color: color.text }]} numberOfLines={1}>
+                          {entry.person}
+                        </Text>
+                        <Text style={[font.mono, { color: color.textMuted }]}>
+                          {entry.days_present}d
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <Hollow text="No attendance recorded yet." />
+                )}
+              </Panel>
 
               <Panel>
                 <SectionRule
