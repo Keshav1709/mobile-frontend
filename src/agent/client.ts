@@ -61,7 +61,11 @@ export function agentApi(baseUrl: string) {
 
   return {
     baseUrl,
-    info: () => call<AgentInfo>('/pair', { timeoutMs: 3000 }),
+    /**
+     * Who this box is. The timeout is a parameter because discovery probes
+     * many addresses that will never answer, and those should give up fast.
+     */
+    info: (timeoutMs = 3000) => call<AgentInfo>('/pair', { timeoutMs }),
 
     startScan: () => call<{ scan_id: string }>('/cameras/discover', { timeoutMs: 8000 }),
     scan: (scanId: string) => call<AgentScan>(`/cameras/discover/${scanId}`),

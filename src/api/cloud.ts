@@ -12,6 +12,17 @@ import {
 
 const CLOUD_URL = process.env.EXPO_PUBLIC_CLOUD_URL ?? 'http://127.0.0.1:8000';
 
+/**
+ * The registry gets a short leash on anything in the sign-in path.
+ *
+ * It is optional by design: `AuthProvider` falls back to the dashboard manifest
+ * when it cannot be reached, and everything but the app-only profile fields
+ * keeps working. But the default fifteen seconds meant every launch sat on a
+ * blank screen waiting for a service that was never going to answer, before
+ * recovering perfectly well. It either replies quickly or it is not there.
+ */
+const AUTH_TIMEOUT_MS = 4000;
+
 const bearer = (idToken: string) => ({ Authorization: `Bearer ${idToken}` });
 
 /** Cloud registry: sign-in, workspace setup, box liveness, camera metadata. No camera secrets. */
@@ -26,17 +37,19 @@ export const cloudApi = {
       environment: string;
       signup_enabled: boolean;
       read_only: boolean;
-    }>(CLOUD_URL, '/api/auth/config'),
+    }>(CLOUD_URL, '/api/auth/config', { timeoutMs: AUTH_TIMEOUT_MS }),
 
   createSession: (idToken: string, displayName?: string) =>
     request<{ ok: true; is_new: boolean; user: UserProfile }>(CLOUD_URL, '/api/auth/session', {
       method: 'POST',
       body: { id_token: idToken, display_name: displayName },
+      timeoutMs: AUTH_TIMEOUT_MS,
     }),
 
   me: (idToken: string) =>
     request<UserProfile>(CLOUD_URL, '/api/auth/me', {
       headers: { Authorization: `Bearer ${idToken}` },
+      timeoutMs: AUTH_TIMEOUT_MS,
     }),
 
   saveProfile: (idToken: string, draft: ProfileDraft) =>

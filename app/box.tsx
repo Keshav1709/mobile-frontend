@@ -27,7 +27,7 @@ const POLL_MS = 4000;
  */
 export default function BoxScreen() {
   const { idToken } = useAuth();
-  const { info: agentInfo } = useAgent();
+  const { info: agentInfo, discover } = useAgent();
 
   const [devices, setDevices] = useState<Device[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -47,6 +47,15 @@ export default function BoxScreen() {
     const poll = setInterval(load, POLL_MS);
     return () => clearInterval(poll);
   }, [load]);
+
+  /**
+   * This screen reports whether a box is on this Wi-Fi, so it is one of the few
+   * places worth sweeping the subnet for one. Launch only re-checks the last
+   * known address, which misses a box that has moved network.
+   */
+  useEffect(() => {
+    void discover();
+  }, [discover]);
 
   const primary = useMemo(() => {
     const list = devices ?? [];

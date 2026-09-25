@@ -27,14 +27,24 @@ type AgentValue = {
   /** False while the first search is still running. */
   ready: boolean;
   searching: boolean;
-  /** Looks again, e.g. after the agent is started on the network. */
+  /** Re-checks the address the agent was last seen on. Cheap; no sweep. */
   refresh: () => Promise<void>;
+  /**
+   * Walks the whole subnet looking for a box. Seconds, not milliseconds, so
+   * only call it from a screen that cannot work without an agent and can show
+   * that it is searching.
+   */
+  discover: () => Promise<void>;
 };
 
 const AgentContext = createContext<AgentValue | null>(null);
 
 /**
- * Looks for a local agent once at start-up.
+ * Keeps track of the local agent, if there is one.
+ *
+ * At launch it only re-checks the address the agent was last seen on. Finding
+ * one that has moved means sweeping the subnet, which is slow enough to be
+ * worth asking for explicitly — see `discover`.
  *
  * When one is found the app delegates discovery, connecting and pan/tilt to it:
  * the agent finds cameras by multicast rather than sweeping addresses, checks
@@ -46,11 +56,11 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [searching, setSearching] = useState(false);
 
-  const refresh = useCallback(async () => {
+  const look = useCallback(async (sweep: boolean) => {
     setSearching(true);
     try {
       const known = await SecureStore.getItemAsync(AGENT_KEY);
-      const found = await findAgent(known);
+      const found = await findAgent(known, { sweep });
       setInfo(found);
       if (found) await SecureStore.setItemAsync(AGENT_KEY, found.agent_url);
     } finally {
@@ -59,6 +69,14 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const refresh = useCallback(() => look(false), [look]);
+  const discover = useCallback(() => look(true), [look]);
+
+  /**
+   * At launch, only re-check where the agent was last seen. That is one request
+   * that usually succeeds on the network the box lives on, and fails in about a
+   * second anywhere else. The full sweep waits until a screen asks for it.
+   */
   useEffect(() => {
     refresh();
   }, [refresh]);
@@ -82,8 +100,9 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       ready,
       searching,
       refresh,
+      discover,
     }),
-    [info, relayUrl, ready, searching, refresh],
+    [info, relayUrl, ready, searching, refresh, discover],
   );
 
   return <AgentContext.Provider value={value}>{children}</AgentContext.Provider>;

@@ -44,7 +44,12 @@ import type {
  */
 
 /** A day of events is a real aggregation; give it longer than a list read. */
-const SLOW = 30000;
+/**
+ * Reports and face clustering are genuinely slow server-side, so reads get more
+ * than the transport default. Not thirty seconds though: that was long enough
+ * that a failed call looked like a frozen screen rather than a failed call.
+ */
+const SLOW = 10000;
 
 const q = (params: Record<string, string | number | null | undefined>) => {
   const pairs = Object.entries(params)

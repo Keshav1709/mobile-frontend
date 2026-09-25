@@ -1,5 +1,5 @@
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { cloudApi } from '@/api/cloud';
@@ -12,6 +12,7 @@ import { finishFlow, goBack } from '@/lib/helpers';
 import { useAuth } from '@/state/auth';
 import { useTheme } from '@/state/theme';
 import { font, hue, radius, space } from '@/theme';
+import { useAgent } from '@/state/agent';
 
 const STEPS = [
   { title: 'Scan', body: 'We look for ONVIF cameras on your Wi-Fi network.' },
@@ -20,6 +21,17 @@ const STEPS = [
 ];
 
 export default function AddCamera() {
+  const { discover } = useAgent();
+
+  /**
+   * Look properly for a box before the scan screen decides how to scan. Launch
+   * only re-checks the last known address; a box on a new network needs the
+   * sweep, and this is the one flow that cannot work without finding it.
+   */
+  useEffect(() => {
+    void discover();
+  }, [discover]);
+
   const { color } = useTheme();
   const { user, idToken } = useAuth();
   const [connected, setConnected] = useState<Camera[]>([]);
