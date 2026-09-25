@@ -46,13 +46,9 @@ export const cloudApi = {
       headers: { Authorization: `Bearer ${idToken}` },
     }),
 
-  /** Type the code off the box's screen: binds it to the caller's workspace. */
-  bindDevice: (idToken: string, claimCode: string, label?: string) =>
-    request<Device>(CLOUD_URL, '/api/devices/claim', {
-      method: 'POST',
-      body: { claim_code: claimCode, label },
-      headers: bearer(idToken),
-    }),
+  // No bindDevice. A box is claimed on the dashboard by whoever installs it,
+  // and POST /api/devices/claim stays there. The app reads which box the
+  // workspace has and adds cameras to it; it never adopts a new one.
 
   /** Boxes bound to the workspace, with the connect-box checks already decided. */
   listDevices: (idToken: string) =>

@@ -4,43 +4,33 @@ import { StyleSheet, View } from 'react-native';
 import { cloudApi } from '@/api/cloud';
 import { Device } from '@/api/types';
 import { Banner } from '@/components/Banner';
-import { Button } from '@/components/Button';
 import { ListGroup, ListRow } from '@/components/ListRow';
 import { Pill } from '@/components/Pill';
 import { Screen } from '@/components/Screen';
 import { Skeleton } from '@/components/Skeleton';
-import { TextField } from '@/components/TextField';
-import { haptic } from '@/lib/haptics';
 import { errorMessage, goBack } from '@/lib/helpers';
 import { useAgent } from '@/state/agent';
 import { useAuth } from '@/state/auth';
-import { useTheme } from '@/state/theme';
-import { useToast } from '@/state/toast';
-import { font, space } from '@/theme';
+import { space } from '@/theme';
 
 const POLL_MS = 4000;
-const CODE_LENGTH = 6;
-
-/** What the person types, as the registry reads it: upper-case, no spaces or dashes. */
-const cleanCode = (raw: string) => raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, CODE_LENGTH);
 
 /**
- * The ZeroForg Box in this workspace: bind one by the code on its screen, and
- * see whether it is online, on the factory network, and talking to the cloud.
- * Reached from Settings; not part of any first-run flow.
+ * The ZeroForg Box in this workspace: whether it is online, on the factory
+ * network, and talking to the cloud.
+ *
+ * Read-only on purpose. A box is claimed during onboarding on the dashboard,
+ * by whoever installs it, and an account that reaches this screen already has
+ * one. Offering to bind another here put a second box on the workspace of
+ * anyone who mistyped, and the phone is the wrong place to notice that. Adding
+ * cameras to the box it already has stays in the app (Settings, Add a camera).
  */
 export default function BoxScreen() {
-  const { color } = useTheme();
   const { idToken } = useAuth();
   const { info: agentInfo } = useAgent();
-  const toast = useToast();
 
   const [devices, setDevices] = useState<Device[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [code, setCode] = useState('');
-  const [binding, setBinding] = useState(false);
-  const [bindError, setBindError] = useState<string | null>(null);
-  const [boundCode, setBoundCode] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!idToken) return;
@@ -63,28 +53,6 @@ export default function BoxScreen() {
     return list.find((device) => device.checks.online) ?? list[0] ?? null;
   }, [devices]);
 
-  const thisCodeBound = boundCode !== null && cleanCode(code) === boundCode;
-  const codeComplete = cleanCode(code).length === CODE_LENGTH;
-
-  const bind = async () => {
-    if (!idToken) return;
-    setBindError(null);
-    setBinding(true);
-    try {
-      const typed = cleanCode(code);
-      const device = await cloudApi.bindDevice(idToken, typed);
-      setBoundCode(typed);
-      haptic.success();
-      toast.show(`${device.label || 'ZeroForg Box'} bound to your workspace`);
-      await load();
-    } catch (cause) {
-      haptic.error();
-      setBindError(errorMessage(cause, "We couldn't bind that box."));
-    } finally {
-      setBinding(false);
-    }
-  };
-
   const checks = primary
     ? [
         { label: 'Box online', ready: primary.checks.online },
@@ -97,37 +65,10 @@ export default function BoxScreen() {
   return (
     <Screen
       onBack={() => goBack('/settings')}
-      eyebrow="Admin"
+      eyebrow="Facility"
       title="ZeroForg Box"
-      subtitle="Power on the box. It shows a 6-character code. Enter it here to bind the box to this workspace."
+      subtitle="The box that watches your cameras and sends what it sees to ZeroForg."
     >
-      <View style={styles.claimRow}>
-        <View style={styles.claimField}>
-          <TextField
-            label="Claim code"
-            value={code}
-            onChangeText={(value) => setCode(cleanCode(value))}
-            placeholder="6 characters"
-            autoCapitalize="characters"
-            autoCorrect={false}
-            editable={!binding}
-            maxLength={CODE_LENGTH}
-            style={styles.codeInput}
-            hint={thisCodeBound ? 'Bound. Enter another code to add a second box.' : 'Shown on the box screen and in its journal'}
-          />
-        </View>
-        <View style={styles.claimButton}>
-          <Button
-            label={thisCodeBound ? 'Bound' : 'Bind box'}
-            variant={thisCodeBound ? 'secondary' : 'primary'}
-            onPress={bind}
-            disabled={thisCodeBound || !codeComplete}
-            loading={binding}
-          />
-        </View>
-      </View>
-
-      {bindError ? <Banner tone="error" title="Couldn't bind" message={bindError} /> : null}
       {error ? (
         <Banner
           tone="error"
@@ -162,11 +103,11 @@ export default function BoxScreen() {
           ))}
         </ListGroup>
       ) : (
-        <ListGroup title="No box yet">
+        <ListGroup title="No box on this workspace">
           <ListRow
             icon="box"
-            label="Nothing bound to this workspace"
-            hint="Type the code from the box to bind it."
+            label="Nothing to show yet"
+            hint="A box is set up on the ZeroForg dashboard when it is installed. Ask your administrator if you expected one here."
           />
         </ListGroup>
       )}
@@ -194,10 +135,5 @@ function ago(iso: string): string {
 }
 
 const styles = StyleSheet.create({
-  claimRow: { flexDirection: 'row', alignItems: 'flex-start', gap: space.md },
-  claimField: { flex: 1 },
-  // Sits level with the field, below its eyebrow label.
-  claimButton: { width: 118, paddingTop: 22 },
-  codeInput: { ...font.mono, fontSize: 18, letterSpacing: 3 },
   skeletons: { gap: space.sm },
 });
