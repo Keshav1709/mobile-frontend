@@ -122,15 +122,17 @@ export default function Home() {
   }, [alerts]);
 
   /**
-   * People in and out today, as the attendance board counts them.
+   * People, counted as people.
    *
-   * These used to be summed from the socket's per-camera counters, which count
-   * crossings rather than people: someone stepping in and out of view four
-   * times counted four times. The board is the number the rest of the product
-   * shows, so the two now agree.
+   * Deliberately not `people_in` / `people_out`. Those are gate line crossings
+   * despite the name: twenty people produced a hundred and one of them in a day,
+   * and `out` regularly exceeds `in`, which is impossible for people and normal
+   * for crossings. Putting them under a label like "in today" reads as a
+   * hundred people arriving. `facility_occupancy` and `present_now` are counts
+   * of individuals, which is what someone glancing at this wants to know.
    */
   const people = attendance
-    ? { in: attendance.people_in, out: attendance.people_out, now: attendance.present_now }
+    ? { onSite: attendance.facility_occupancy, today: attendance.present_now }
     : null;
 
   /** Only counts what arrived while they were away, and only if that is news. */
@@ -233,9 +235,9 @@ export default function Home() {
         {people ? (
           <>
             <View style={[styles.divider, { backgroundColor: color.border }]} />
-            <Stat value={people.in} label="in today" color={color.success} />
+            <Stat value={people.onSite} label="on site now" color={color.success} />
             <View style={[styles.divider, { backgroundColor: color.border }]} />
-            <Stat value={people.out} label="out today" color={color.textMuted} />
+            <Stat value={people.today} label="here today" color={color.textMuted} />
           </>
         ) : null}
       </View>
