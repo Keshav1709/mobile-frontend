@@ -1,5 +1,5 @@
 import { router, useFocusEffect } from 'expo-router';
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshControl, StyleSheet, Text, View } from 'react-native';
 
 import { Banner } from '@/components/Banner';
@@ -10,11 +10,13 @@ import { SkeletonCard } from '@/components/Skeleton';
 import { Pill } from '@/components/Pill';
 import { Screen } from '@/components/Screen';
 import { SectionRule } from '@/components/SectionRule';
-import { agoLabel } from '@/lib/cache';
+import { shortAgo, toActivity } from '@/lib/activity';
+import { agoLabel, cacheKey, readCache, writeCache } from '@/lib/cache';
 import { healthLabel, healthOf, type CameraHealth } from '@/lib/cameraHealth';
 import { useAttention } from '@/state/attention';
 import { useAuth } from '@/state/auth';
 import { useCameras } from '@/state/cameras';
+import { useLive } from '@/state/live';
 import { useTheme } from '@/state/theme';
 import { font, space } from '@/theme';
 import type { Palette } from '@/theme';
@@ -49,7 +51,25 @@ export default function Home() {
   const { user } = useAuth();
   const { cameras: list, status, error, cachedAt, refreshing, refresh, refreshIfStale, select } =
     useCameras();
-  const { alerts, activeCount, presence, loaded: attentionLoaded } = useAttention();
+  const { alerts, activeCount, presence, pictures, loaded: attentionLoaded } = useAttention();
+  const live = useLive();
+
+  /**
+   * When this device last opened Home. Read once, then frozen for the visit so
+   * the "since" line does not reset itself while being read, and written back
+   * on the way out.
+   */
+  const [lastSeen, setLastSeen] = useState<number | null>(null);
+  const marked = useRef(false);
+  useEffect(() => {
+    if (marked.current) return;
+    marked.current = true;
+    void (async () => {
+      const seen = await readCache<number>(cacheKey.lastSeen);
+      setLastSeen(seen?.data ?? null);
+      void writeCache(cacheKey.lastSeen, Date.now());
+    })();
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -65,8 +85,34 @@ export default function Home() {
    * nothing for hours. Same source as the Live tab now, so the two agree.
    */
   const health = useCallback(
-    (id: string): CameraHealth => healthOf(presence[id]),
-    [presence],
+    (id: string): CameraHealth => healthOf(presence[id], Date.now(), pictures[id]),
+    [presence, pictures],
+  );
+
+  const cameraName = useCallback(
+    (id: string) => list.find((c) => c.camera_id === id)?.display_name ?? '',
+    [list],
+  );
+
+  /** What the cameras have seen, newest first. Arrives on the socket. */
+  const activity = useMemo(
+    () => toActivity(live.recentEvents, live.flowEvents, cameraName),
+    [live.recentEvents, live.flowEvents, cameraName],
+  );
+
+  /** Site flow today, summed across cameras from the socket's own counters. */
+  const pulse = useMemo(() => {
+    const stats = live.cameras ?? [];
+    return {
+      in: stats.reduce((n, c) => n + (c.total_in || 0), 0),
+      out: stats.reduce((n, c) => n + (c.total_out || 0), 0),
+    };
+  }, [live.cameras]);
+
+  /** Only counts what happened while they were away, and only if that is news. */
+  const sinceCount = useMemo(
+    () => (lastSeen ? activity.filter((a) => a.at > lastSeen).length : 0),
+    [activity, lastSeen],
   );
 
   const notSending = useMemo(
@@ -146,6 +192,44 @@ export default function Home() {
             <Pill label="Live" tone="live" dot />
           </View>
         </Card>
+      ) : null}
+
+      {/* ── Site pulse: numbers that move while you look at them ───── */}
+      {live.isConnected && (pulse.in || pulse.out || sending) ? (
+        <View style={[styles.pulse, { borderColor: color.border, backgroundColor: color.surface }]}>
+          <Stat value={sending} label="watching" color={color.text} />
+          <View style={[styles.divider, { backgroundColor: color.border }]} />
+          <Stat value={pulse.in} label="in today" color={color.success} />
+          <View style={[styles.divider, { backgroundColor: color.border }]} />
+          <Stat value={pulse.out} label="out today" color={color.textMuted} />
+        </View>
+      ) : null}
+
+      {/* ── What just happened ─────────────────────────────────────── */}
+      {activity.length ? (
+        <>
+          <View style={styles.listHeader}>
+            <SectionRule
+              label="What just happened"
+              meta={
+                sinceCount
+                  ? `${sinceCount} since you last looked`
+                  : live.isConnected
+                    ? 'live'
+                    : undefined
+              }
+            />
+          </View>
+          {activity.slice(0, 8).map((item) => (
+            <ActivityRow
+              key={item.id}
+              text={item.text}
+              detail={item.detail}
+              at={item.at}
+              fresh={!!lastSeen && item.at > lastSeen}
+            />
+          ))}
+        </>
       ) : null}
 
       <View style={styles.listHeader}>
@@ -238,9 +322,75 @@ const CameraRow = memo(function CameraRow({
   );
 });
 
+function Stat({ value, label, color }: { value: number; label: string; color: string }) {
+  const { color: palette } = useTheme();
+  return (
+    <View style={styles.stat}>
+      <Text style={[font.heading, styles.statValue, { color }]}>{value}</Text>
+      <Text style={[font.eyebrow, { color: palette.textFaint }]}>{label}</Text>
+    </View>
+  );
+}
+
+/**
+ * One thing a camera saw. Memoised because the socket pushes often and a row
+ * that has already scrolled past has no reason to repaint.
+ */
+const ActivityRow = memo(function ActivityRow({
+  text,
+  detail,
+  at,
+  fresh,
+}: {
+  text: string;
+  detail: string | null;
+  at: number;
+  fresh: boolean;
+}) {
+  const { color } = useTheme();
+  return (
+    <View style={[styles.activity, { borderBottomColor: color.border }]}>
+      {/* A dot rather than a colour on the text: new since last visit is worth
+          marking, but not worth shouting about. */}
+      <View
+        style={[
+          styles.activityDot,
+          { backgroundColor: fresh ? color.accent : 'transparent' },
+        ]}
+      />
+      <Text numberOfLines={1} style={[font.body, styles.fill, { color: color.text }]}>
+        {text}
+      </Text>
+      {detail ? (
+        <Text style={[font.monoSmall, { color: color.textMuted }]}>{detail}</Text>
+      ) : null}
+      <Text style={[font.monoSmall, { color: color.textFaint }]}>{shortAgo(at)}</Text>
+    </View>
+  );
+});
+
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   fill: { flex: 1 },
   dot: { width: 9, height: 9, borderRadius: 5 },
   listHeader: { marginTop: space.lg, marginBottom: space.xs },
+  pulse: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: space.md,
+    marginTop: space.md,
+  },
+  stat: { flex: 1, alignItems: 'center', gap: 2 },
+  statValue: { fontVariant: ['tabular-nums'] },
+  divider: { width: 1, alignSelf: 'stretch', marginVertical: 4 },
+  activity: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    paddingVertical: space.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  activityDot: { width: 6, height: 6, borderRadius: 3 },
 });

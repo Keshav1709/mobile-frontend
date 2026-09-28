@@ -26,6 +26,13 @@ type AttentionValue = {
   unavailableCameras: AlertsPage['unavailable_cameras'];
   /** Real camera health, keyed by camera id. Presence, not the stale column. */
   presence: Record<string, LiveCamera>;
+  /**
+   * Whether a picture could actually be fetched, keyed by camera id.
+   *
+   * Presence is not enough: it counts detections as well as frames, so a camera
+   * with a broken stream still reports online. Undefined means not checked yet.
+   */
+  pictures: Record<string, boolean>;
   /** False until the first answer, so callers can tell empty from unknown. */
   loaded: boolean;
   refresh: () => Promise<void>;
@@ -36,6 +43,7 @@ const EMPTY: AttentionValue = {
   activeCount: 0,
   unavailableCameras: [],
   presence: {},
+  pictures: {},
   loaded: false,
   refresh: async () => {},
 };
@@ -56,6 +64,7 @@ export function AttentionProvider({ children }: { children: ReactNode }) {
   const [activeCount, setActiveCount] = useState(0);
   const [unavailableCameras, setUnavailable] = useState<AlertsPage['unavailable_cameras']>([]);
   const [presence, setPresence] = useState<Record<string, LiveCamera>>({});
+  const [pictures, setPictures] = useState<Record<string, boolean>>({});
   const [loaded, setLoaded] = useState(false);
 
   const allowed = can('alerts.view');
@@ -71,7 +80,27 @@ export function AttentionProvider({ children }: { children: ReactNode }) {
       setAlerts(page.alerts);
       setActiveCount(page.active_count);
       setUnavailable(page.unavailable_cameras ?? []);
-      if (rows) setPresence(Object.fromEntries(rows.map((row) => [row.id, row])));
+      if (rows) {
+        setPresence(Object.fromEntries(rows.map((row) => [row.id, row])));
+
+        /**
+         * Ask each camera for a picture. The stream endpoint answers an
+         * unauthenticated or broken camera with 200 and an SVG placeholder
+         * rather than an error, so the content type is the real answer.
+         */
+        const checked = await Promise.all(
+          rows.map(async (row) => {
+            try {
+              const res = await fetch(dashboardApi.frameUrl(row.id, token), { method: 'GET' });
+              const type = (res.headers.get('content-type') ?? '').toLowerCase();
+              return [row.id, res.ok && type.startsWith('image/') && !type.includes('svg')] as const;
+            } catch {
+              return [row.id, false] as const;
+            }
+          }),
+        );
+        setPictures(Object.fromEntries(checked));
+      }
     } catch {
       // Leave the last answer standing. A dropped request on factory wifi
       // should not empty the badge and make a live site look quiet.
@@ -108,8 +137,8 @@ export function AttentionProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const value = useMemo(
-    () => ({ alerts, activeCount, unavailableCameras, presence, loaded, refresh }),
-    [alerts, activeCount, unavailableCameras, presence, loaded, refresh],
+    () => ({ alerts, activeCount, unavailableCameras, presence, pictures, loaded, refresh }),
+    [alerts, activeCount, unavailableCameras, presence, pictures, loaded, refresh],
   );
 
   return <AttentionContext.Provider value={value}>{children}</AttentionContext.Provider>;

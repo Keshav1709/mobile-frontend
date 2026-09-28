@@ -34,9 +34,23 @@ export type LiveCamera = {
  * Three states worth separating, because the person does something different
  * about each: nothing (live), wait (stalled), or go and look at the camera (down).
  */
-export function healthOf(row: LiveCamera | undefined, now = Date.now()): CameraHealth {
+export function healthOf(
+  row: LiveCamera | undefined,
+  now = Date.now(),
+  sendingPictures?: boolean,
+): CameraHealth {
   if (!row) return 'unknown';
   if (row.enabled === false) return 'disabled';
+
+  /**
+   * Presence counts "a frame OR a detection batch", so a camera whose pictures
+   * cannot be fetched still reports `online` while its stream answers nothing.
+   * Camera 26 does exactly this in production: presence says online with a
+   * fresh last_frame_at, and the stream endpoint times out. Calling that Live
+   * tells someone they can watch a camera they cannot, so a failed picture
+   * outranks presence.
+   */
+  if (sendingPictures === false) return 'stalled';
   if (row.status === 'online') return 'live';
 
   const seen = row.last_frame_at ? Date.parse(row.last_frame_at) : NaN;

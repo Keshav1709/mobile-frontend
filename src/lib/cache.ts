@@ -125,6 +125,8 @@ export async function clearCache(): Promise<void> {
  * a switch never shows the previous one's data.
  */
 export const cacheKey = {
+  /** When this device last looked at Home, for "since you last looked". */
+  lastSeen: 'home.last_seen',
   profile: 'profile',
   cameras: (orgId: string | null) => `cameras.${orgId ?? 'default'}`,
   lastCamera: (orgId: string | null) => `last_camera.${orgId ?? 'default'}`,
