@@ -9,6 +9,7 @@ import { Glow } from '@/components/Glow';
 import { EmptyState } from '@/components/EmptyState';
 import { SkeletonCard } from '@/components/Skeleton';
 import { Pill } from '@/components/Pill';
+import { RefreshNote, settledLine } from '@/components/RefreshNote';
 import { Screen } from '@/components/Screen';
 import { SectionRule } from '@/components/SectionRule';
 import { shortAgo } from '@/lib/activity';
@@ -183,6 +184,11 @@ export default function Home() {
         <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={color.textMuted} />
       }
     >
+      <RefreshNote
+        refreshing={refreshing}
+        settled={settledLine(activeCount, notSending.length)}
+      />
+
       {activeCount > 0 ? (
         <Card onPress={() => router.push('/(tabs)/alerts')}>
           <View style={styles.row}>

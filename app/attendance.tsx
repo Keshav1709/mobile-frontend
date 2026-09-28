@@ -13,6 +13,8 @@ import { HeatCalendar } from '@/components/HeatCalendar';
 import { Icon } from '@/components/Icon';
 import { Screen } from '@/components/Screen';
 import { SectionRule } from '@/components/SectionRule';
+import { BoardLoading } from '@/components/OrbitLoader';
+import { RefreshNote } from '@/components/RefreshNote';
 import { SkeletonCard } from '@/components/Skeleton';
 import { StatColumns } from '@/components/StatColumns';
 import { errorMessage, goBack } from '@/lib/helpers';
@@ -284,8 +286,17 @@ export default function Attendance() {
         <Banner tone="error" title="Couldn't load" message={error} onRetry={() => void load()} />
       ) : null}
 
+      <RefreshNote
+        refreshing={refreshing}
+        settled={
+          board
+            ? `${board.present_now} in today, ${board.facility_occupancy} still on site`
+            : 'Attendance is up to date'
+        }
+      />
+
       {loading ? (
-        <SkeletonCard lines={4} />
+        <BoardLoading />
       ) : unavailable ? (
         <EmptyState
           icon="profile"

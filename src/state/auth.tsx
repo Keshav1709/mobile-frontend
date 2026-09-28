@@ -127,19 +127,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * dashboard vouches for from signing in — but a registry that *refuses* (no such
    * account) is a real answer and is kept. Only transport failures fall through.
    */
+  /**
+   * The profile, from the registry where it answers and the dashboard where it
+   * does not.
+   *
+   * Both are asked at once rather than the dashboard waiting its turn. The
+   * registry is optional by design and currently undeployed, so asking it first
+   * and alone meant every launch sat through its whole timeout before starting
+   * the request that was going to succeed. The manifest is wanted a moment
+   * later by ConsoleProvider regardless, so nothing is wasted when the registry
+   * is up and several seconds are saved when it is not.
+   */
   const profileFor = useCallback(async (token: string, restore: boolean): Promise<UserProfile> => {
+    const fromRegistry = restore
+      ? cloudApi.me(token)
+      : cloudApi.createSession(token).then((session) => session.user);
+    const fromManifest = fetchManifest(token).then((answer) => answer.manifest);
+
+    // Nothing is thrown at the caller until one of them has actually failed.
+    fromRegistry.catch(() => undefined);
+    fromManifest.catch(() => undefined);
+
     try {
-      const profile = restore ? await cloudApi.me(token) : (await cloudApi.createSession(token)).user;
+      const profile = await fromRegistry;
       setRegistryOffline(false);
       return profile;
     } catch (cause) {
       if (!(cause instanceof RequestError) || !TRANSPORT_FAILURES.has(cause.code)) throw cause;
       let manifest;
       try {
-        manifest = (await fetchManifest(token)).manifest;
+        manifest = await fromManifest;
       } catch {
-        // Neither service answered: report the registry's failure, which is the
-        // one whose message says "check your connection".
+        // Neither answered: report the registry's failure, which is the one
+        // whose message says "check your connection".
         throw cause;
       }
       setRegistryOffline(true);
