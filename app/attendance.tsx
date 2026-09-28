@@ -340,7 +340,7 @@ export default function Attendance() {
               <Icon name={neverSeen ? 'warning' : 'info'} size={14} color={color.textFaint} />
               <Text style={[font.body, styles.fill, { color: color.textMuted }]}>
                 {neverSeen
-                  ? `No one has ever been recognised here, though ${board.enrolled_total} people are enrolled. Worth checking the cameras.`
+                  ? `No one has ever been recognised${workspace ? ` at ${workspace}` : ''}, though ${board.enrolled_total} people are enrolled. Worth checking the cameras.`
                   : quiet
                     ? lastActive
                       ? `Nothing yet today · ${dayLabel(lastActive.date)} ${lastActive.people} were in`
@@ -399,8 +399,8 @@ export default function Attendance() {
               <Panel padded={false}>
                 <View style={styles.panelHead}>
                   <SectionRule
-                    label="Checked in here"
-                    meta={`${board.checked_in_today} of ${board.enrolled_total}`}
+                    label={workspace ? `Checked in at ${workspace}` : 'Checked in'}
+                    meta={`${board.checked_in_here} of ${board.enrolled_total}`}
                   />
                 </View>
                 <View style={[styles.divider, { backgroundColor: color.border }]} />
@@ -420,6 +420,7 @@ export default function Attendance() {
               <Panel>
                 <SectionRule
                   label="Recent arrivals"
+                  subtitle={workspace || undefined}
                   meta={board.recent_arrivals.length ? `${board.recent_arrivals.length} today` : undefined}
                 />
                 {board.recent_arrivals.length ? (
@@ -459,7 +460,7 @@ export default function Attendance() {
               <Panel>
                 <SectionRule
                   label="Who's in today"
-                  subtitle={`${present.length} present · ${away.length} out`}
+                  subtitle={`across every centre · ${present.length} present · ${away.length} out`}
                 />
                 {present.length ? (
                   <View style={styles.faces}>
@@ -592,7 +593,7 @@ export default function Attendance() {
               <Panel>
                 <SectionRule
                   label="Punctuality stars"
-                  subtitle="earliest today"
+                  subtitle="every centre · earliest today"
                   glyph={punctual.length ? <Text>{MEDALS[0]}</Text> : undefined}
                 />
                 {punctual.length ? (
@@ -617,7 +618,7 @@ export default function Attendance() {
               <Panel>
                 <SectionRule
                   label="Commitment stars"
-                  subtitle={`last ${stats?.window_days ?? statsDays} days`}
+                  subtitle={`every centre · last ${stats?.window_days ?? statsDays} days`}
                   glyph={committed.length ? <Text>{TROPHY}</Text> : undefined}
                 />
                 {committed.length ? (
