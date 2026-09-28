@@ -12,7 +12,11 @@ const CLOSE_RADIUS = 18;
 export type ZoneCanvasMode = 'draw' | 'idle';
 
 type Props = {
-  imageUrl: string | null;
+  /**
+   * The frame to outline on, as an image source rather than a URL: the relay it
+   * comes from requires credentials, and those travel in the source's `headers`.
+   */
+  image: { uri: string; headers?: Record<string, string> } | null;
   zones: ZonePolygon[];
   activeZoneId: string | null;
   mode: ZoneCanvasMode;
@@ -31,7 +35,7 @@ type Props = {
  * Coordinates are normalised so the same polygon fits any screen or stream size.
  */
 export function ZoneCanvas({
-  imageUrl,
+  image,
   zones,
   activeZoneId,
   mode,
@@ -81,9 +85,9 @@ export function ZoneCanvas({
       style={[styles.frame, { backgroundColor: color.surfaceSunken, borderColor: color.border }]}
     >
       <View style={styles.aspect} onLayout={onLayout}>
-        {imageUrl && !imageFailed ? (
+        {image && !imageFailed ? (
           <Image
-            source={{ uri: imageUrl }}
+            source={image}
             style={StyleSheet.absoluteFill}
             resizeMode="cover"
             onError={() => setImageFailed(true)}
@@ -91,14 +95,14 @@ export function ZoneCanvas({
         ) : (
           <View style={[StyleSheet.absoluteFill, styles.placeholder]}>
             <Text style={[font.caption, { color: color.textFaint }]}>
-              {imageUrl ? 'Snapshot unavailable' : 'No live frame yet. Outline on the grid.'}
+              {image ? 'Snapshot unavailable' : 'No live frame yet. Outline on the grid.'}
             </Text>
           </View>
         )}
 
         {size.width > 0 ? (
           <Svg width={size.width} height={size.height} style={StyleSheet.absoluteFill}>
-            {!imageUrl || imageFailed ? <Grid width={size.width} height={size.height} /> : null}
+            {!image || imageFailed ? <Grid width={size.width} height={size.height} /> : null}
 
             {zones.map((zone) => {
               if (zone.points.length < 3) return null;

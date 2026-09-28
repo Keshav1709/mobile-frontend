@@ -20,7 +20,7 @@ import {
   labelZone,
   newZone,
 } from '@/lib/zones';
-import { frameUrl, streamNames } from '@/onvif/relay';
+import { frameSource, streamNames } from '@/onvif/relay';
 import { useAgent } from '@/state/agent';
 import { useAuth } from '@/state/auth';
 import { useTheme } from '@/state/theme';
@@ -55,10 +55,12 @@ export default function ZoneEditor() {
     () => cameras.find((item) => item.camera_id === cameraId) ?? null,
     [cameras, cameraId],
   );
-  const imageUrl = useMemo(
+  // The relay needs credentials for this frame, so it travels as a full image
+  // source with headers rather than a bare URL.
+  const image = useMemo(
     () =>
       relayUrl && camera?.stream_reference
-        ? frameUrl(streamNames(camera.camera_id).preview)
+        ? frameSource(streamNames(camera.camera_id).preview)
         : null,
     [camera, relayUrl],
   );
@@ -244,7 +246,7 @@ export default function ZoneEditor() {
       ) : null}
 
       <ZoneCanvas
-        imageUrl={imageUrl}
+        image={image}
         zones={zones}
         activeZoneId={activeZoneId}
         mode={mode}

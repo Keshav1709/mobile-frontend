@@ -211,8 +211,12 @@ export default function Home() {
         <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={color.textMuted} />
       }
     >
+      {/* Also shown during the first load, not only on pull to refresh. A cold
+          start has to wait for the workspace before it can ask for anything
+          else, and that wait used to be two blank skeletons — which look the
+          same whether something is happening or nothing is. The lines say which. */}
       <RefreshNote
-        refreshing={refreshing}
+        refreshing={refreshing || status === 'loading'}
         settled={settledLine(activeCount, notSending.length)}
       />
 

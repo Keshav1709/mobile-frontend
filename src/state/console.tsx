@@ -16,6 +16,7 @@ import {
   RealmOrg,
   consoleApi,
   fetchManifest,
+  forgetManifest,
   setActiveOrgId,
 } from '@/api/console';
 import { hasPermission } from '@/lib/access';
@@ -98,9 +99,9 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
   const generation = useRef(0);
 
   const loadManifest = useCallback(
-    async (token: string, wanted: string | null) => {
+    async (token: string, wanted: string | null, force: boolean) => {
       const mine = ++generation.current;
-      const { manifest: next, denied } = await fetchManifest(token, wanted);
+      const { manifest: next, denied } = await fetchManifest(token, wanted, { force });
       if (generation.current !== mine) return null;
 
       setManifest(next);
@@ -120,7 +121,11 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const load = useCallback(async () => {
+  /**
+   * @param force Always ask the server, rather than reusing the manifest the
+   *   sign-in path just fetched. True for anything the person asked for.
+   */
+  const load = useCallback(async (force = false) => {
     const token = await getToken();
     if (!token) {
       setStatus('idle');
@@ -140,7 +145,7 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
           ? stored
           : (reachable[0]?.orgId ?? reachable[0]?.id ?? null);
 
-      await loadManifest(token, wanted);
+      await loadManifest(token, wanted, force);
       setStatus('ready');
     } catch (cause) {
       setError(errorMessage(cause, "We couldn't load your workspace."));
@@ -152,6 +157,7 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
     if (authStatus === 'signedIn') void load();
     if (authStatus === 'signedOut') {
       generation.current += 1;
+      forgetManifest();
       setActiveOrgId(null);
       setManifest(null);
       setOrganizations([]);
@@ -169,14 +175,14 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
       setStatus('loading');
       setError(null);
       try {
-        const refused = await loadManifest(token, next);
+        const refused = await loadManifest(token, next, true);
         if (refused) {
           // The server answered 200 with a different organisation rather than an error.
           // Say so: silently showing another centre's data under the name the person
           // tapped is the one outcome worse than a refusal.
           const name = organizations.find((o) => (o.orgId ?? o.id) === next)?.name ?? 'that site';
           setError(`You no longer have access to ${name}. Showing ${refused.org.name} instead.`);
-          void load();
+          void load(true);
           return;
         }
         setStatus('ready');
@@ -213,7 +219,7 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
       scoped: Boolean(manifest?.user?.scope),
       selectOrg,
       selectSite,
-      reload: load,
+      reload: () => load(true),
     };
   }, [status, error, manifest, organizations, orgId, siteId, selectOrg, selectSite, load]);
 

@@ -77,3 +77,25 @@ export function confirmSignOut(signOut: () => Promise<void>): void {
     { cancelable: true },
   );
 }
+
+/**
+ * Standard base64, for an HTTP Basic credential.
+ *
+ * Deliberately not the base64url in `state/auth.tsx`: that one uses the `-_`
+ * alphabet and drops padding, which is right for a JWT segment and wrong here —
+ * a Basic header has to be plain base64 or the server rejects it. Hand-rolled
+ * because React Native's engine does not reliably provide `btoa`.
+ */
+export function base64(value: string): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const bytes = Array.from(new TextEncoder().encode(value));
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const chunk = (bytes[i] << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0);
+    const size = bytes.length - i;
+    out += chars[(chunk >> 18) & 63] + chars[(chunk >> 12) & 63];
+    out += size > 1 ? chars[(chunk >> 6) & 63] : '=';
+    out += size > 2 ? chars[chunk & 63] : '=';
+  }
+  return out;
+}

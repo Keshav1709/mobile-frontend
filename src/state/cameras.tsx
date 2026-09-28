@@ -60,7 +60,7 @@ const CamerasContext = createContext<CamerasValue | null>(null);
 
 export function CamerasProvider({ children }: { children: ReactNode }) {
   const { status: authStatus, idToken } = useAuth();
-  const { orgId, status: consoleStatus } = useConsole();
+  const { orgId, status: consoleStatus, error: consoleError } = useConsole();
 
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [status, setStatus] = useState<Status>('loading');
@@ -132,6 +132,22 @@ export function CamerasProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  /**
+   * The workspace never loaded, so the camera list never will either.
+   *
+   * `refresh` waits for the console to be ready before it asks for anything,
+   * which is right — a request with no centre on it is answered against a guess.
+   * But when the console ends in failure that wait has no end, and the screens
+   * sat on skeletons indefinitely with nothing to read and nothing to tap. The
+   * console has already said what went wrong; this passes it on so there is a
+   * retry on screen instead of a spinner with no way out.
+   */
+  useEffect(() => {
+    if (consoleStatus !== 'error') return;
+    setError(consoleError ?? "We couldn't load your workspace.");
+    setStatus((current) => (current === 'ready' ? 'ready' : 'error'));
+  }, [consoleStatus, consoleError]);
 
   // Signing out must not leave the next account looking at these.
   useEffect(() => {

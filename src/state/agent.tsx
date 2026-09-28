@@ -11,19 +11,45 @@ import {
 
 import { agentApi, AgentApi, AgentInfo } from '@/agent/client';
 import { findAgent } from '@/agent/locate';
-import { resolveRelayUrl, setRelayUrl } from '@/onvif/relay';
+import { resolveRelayUrl, setRelayCredentials, setRelayUrl } from '@/onvif/relay';
 
 const AGENT_KEY = 'zeroforg.agent_url';
+const AGENT_TOKEN_KEY = 'zeroforg.agent_token';
+
+/**
+ * A token for the box, for a build that is pointed at a known one.
+ *
+ * The agent needs a bearer token on every camera endpoint (it used to answer
+ * anyone on the network). A phone normally learns the token by pairing — the
+ * box's own /pair page carries it in the QR — and it is then kept in
+ * SecureStore. This variable is the development path, so a box on a desk works
+ * without a pairing UI, and it is only a fallback: a paired token wins.
+ */
+const CONFIGURED_TOKEN = process.env.EXPO_PUBLIC_AGENT_TOKEN ?? '';
 
 type AgentValue = {
   /** Null when no agent is on the network; the app then does the work itself. */
   api: AgentApi | null;
   info: AgentInfo | null;
   /**
+   * True when a box was found but this phone holds no token for it, so its
+   * camera endpoints will refuse. Screens use it to say "pair this box" rather
+   * than showing an authentication failure for something the person can fix.
+   */
+  needsPairing: boolean;
+  /** Remembers a token for the box, from a scanned pairing code. */
+  pair: (token: string) => Promise<void>;
+  /**
    * The go2rtc relay on this agent's box, as reachable from this phone, or ''
    * when there is none. Screens that offer LAN video gate on it being set.
    */
   relayUrl: string;
+  /**
+   * True when the box found has a relay running wide open — no credentials, so
+   * anything on that network can watch every camera on it. Surfaced so it can be
+   * reported rather than silently tolerated.
+   */
+  relayOpen: boolean;
   /** False while the first search is still running. */
   ready: boolean;
   searching: boolean;
@@ -55,6 +81,25 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   const [info, setInfo] = useState<AgentInfo | null>(null);
   const [ready, setReady] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
+
+  // A token this phone was paired with outlasts a launch; the configured one is
+  // the fallback for a development build with no pairing step.
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      const stored = await SecureStore.getItemAsync(AGENT_TOKEN_KEY).catch(() => null);
+      if (live) setToken(stored || CONFIGURED_TOKEN || null);
+    })();
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const pair = useCallback(async (next: string) => {
+    setToken(next);
+    await SecureStore.setItemAsync(AGENT_TOKEN_KEY, next).catch(() => undefined);
+  }, []);
 
   const look = useCallback(async (sweep: boolean) => {
     setSearching(true);
@@ -92,17 +137,35 @@ export function AgentProvider({ children }: { children: ReactNode }) {
     setRelayUrl(relayUrl);
   }, [relayUrl]);
 
+  /**
+   * The relay's credentials travel with the box, not with the build.
+   *
+   * They arrive on the paired `/api/pair` response and are pushed into the relay
+   * module, whose publish and playback calls happen outside React during
+   * onboarding. Cleared when the box goes away so a phone that walks to another
+   * site does not keep presenting the last one's password.
+   */
+  useEffect(() => {
+    setRelayCredentials(info?.relay ?? null);
+  }, [info]);
+
   const value = useMemo<AgentValue>(
     () => ({
-      api: info ? agentApi(info.agent_url) : null,
+      api: info ? agentApi(info.agent_url, token) : null,
       info,
+      // An older agent does not report `auth_required` at all, and answers
+      // without a token; only a box that says it needs one is unpaired.
+      needsPairing: Boolean(info?.auth_required) && !token,
+      pair,
       relayUrl,
+      // Only knowable once paired: an unpaired caller is not told either way.
+      relayOpen: Boolean(info && token && !info.relay),
       ready,
       searching,
       refresh,
       discover,
     }),
-    [info, relayUrl, ready, searching, refresh, discover],
+    [info, token, pair, relayUrl, ready, searching, refresh, discover],
   );
 
   return <AgentContext.Provider value={value}>{children}</AgentContext.Provider>;

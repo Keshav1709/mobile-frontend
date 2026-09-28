@@ -2,7 +2,16 @@ import { request } from '@/api/client';
 import { Camera } from '@/api/types';
 import type { Direction } from '@/onvif/ptz';
 
-/** The local agent's API. Present only when an agent is running on the LAN. */
+/**
+ * The local agent's API. Present only when an agent is running on the LAN.
+ *
+ * Everything but `/api/health` and `/api/pair` needs the box's token. The agent
+ * used to answer any caller on the network, which meant anything that could
+ * reach port 8765 could list the cameras, move them, or delete them. `info` is
+ * still open — it is how a box is found at all — but it now reports
+ * `auth_required`, and the claim code it used to hand out is only included for a
+ * caller that is already paired.
+ */
 
 export type AgentInfo = {
   service: string;
@@ -11,7 +20,21 @@ export type AgentInfo = {
   port: number;
   go2rtc_url: string;
   capabilities: string[];
-  /** Whether the box is bound to a workspace; carries the claim code while it waits. */
+  /** True when the camera endpoints need a token. Absent on older agents. */
+  auth_required?: boolean;
+  /**
+   * The video relay's credentials, present only for a paired caller.
+   *
+   * The relay runs closed — unauthenticated it lists every camera, serves the
+   * stack's configuration, and lets anyone re-point a camera at another source.
+   * Absent means the relay has none set and is open, which the app should treat
+   * as a problem with the box rather than as normal.
+   */
+  relay?: { username: string; password: string };
+  /**
+   * Whether the box is bound to a workspace. `claim_code` is present only for a
+   * paired caller or one on the box itself; read it off the box's own /pair page.
+   */
   cloud?: {
     enabled: boolean;
     registered: boolean;
@@ -55,9 +78,19 @@ export type AgentConnectJob = {
   error: { code: string; message: string } | null;
 };
 
-export function agentApi(baseUrl: string) {
+/**
+ * @param token The box's API token, where this phone has been paired with one.
+ *   Omitted for the discovery probe, which needs no token and must stay cheap.
+ */
+export function agentApi(baseUrl: string, token?: string | null) {
   const call = <T>(path: string, options?: Parameters<typeof request>[2]) =>
-    request<T>(baseUrl, `/api${path}`, options);
+    request<T>(baseUrl, `/api${path}`, {
+      ...options,
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options?.headers,
+      },
+    });
 
   return {
     baseUrl,

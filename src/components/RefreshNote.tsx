@@ -14,11 +14,27 @@ import { font, radius, space } from '@/theme';
  * refresh wants to know whether anything has changed, not to be entertained.
  */
 
-/** Cycled while a refresh is in flight, one every 1.4s. */
+/**
+ * Cycled while a refresh is in flight, one every 1.4s.
+ *
+ * Eight lines, not four. A cold start against the dashboard can take twenty
+ * seconds or more - the workspace, then its cameras, then the last hour - and
+ * with four lines the list visibly looped twice, which reads as "stuck" rather
+ * than "working". Eight covers the slow case without repeating, and the last
+ * one holds once they run out: a line that stops changing is honest about a
+ * long wait, where a loop pretends progress that is not being made.
+ *
+ * Each line names something the app is actually doing, in the order it does it.
+ * None of them claim a result.
+ */
 const WORKING = [
   'Checking every camera',
   'Catching up on today',
   'Reading the last hour',
+  'Counting who is on site',
+  'Checking your boxes are online',
+  'Looking for anything still open',
+  'Putting it together',
   'Almost there',
 ];
 
@@ -56,7 +72,13 @@ export function RefreshNote({
   useEffect(() => {
     if (!refreshing) return;
     setStep(0);
-    const timer = setInterval(() => setStep((n) => (n + 1) % WORKING.length), STEP_MS);
+    // Advance, then stop at the last line rather than wrapping. Looping back to
+    // "Checking every camera" after eleven seconds reads as a request that
+    // restarted, which is the one thing that is not happening.
+    const timer = setInterval(
+      () => setStep((n) => Math.min(n + 1, WORKING.length - 1)),
+      STEP_MS,
+    );
     return () => clearInterval(timer);
   }, [refreshing]);
 

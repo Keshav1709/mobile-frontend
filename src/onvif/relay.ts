@@ -14,7 +14,7 @@
  */
 
 import { AgentInfo } from '@/agent/client';
-import { joinUrl, query } from '@/lib/helpers';
+import { base64, joinUrl, query } from '@/lib/helpers';
 
 /** A relay to use instead of whatever the agent reports. Development only. */
 const OVERRIDE = process.env.EXPO_PUBLIC_GO2RTC_URL ?? '';
@@ -23,6 +23,55 @@ const OVERRIDE = process.env.EXPO_PUBLIC_GO2RTC_URL ?? '';
 const DEFAULT_PORT = '1984';
 
 let relayUrl = OVERRIDE;
+
+/**
+ * The relay's basic-auth credentials, handed over by the agent once this phone
+ * has paired with a box.
+ *
+ * The relay's API is not a read-only video service. Unauthenticated it lists
+ * every camera on the site, serves the stack's own configuration out of
+ * `/api/config`, and lets any caller re-point a camera's name at a source of
+ * their choosing — a guard showing an attacker's chosen picture rather than the
+ * room. So it runs closed, and every call from here presents credentials.
+ *
+ * They are never baked into the build: `EXPO_PUBLIC_*` is inlined at build time
+ * and readable by anyone holding the APK, and one APK is installed at every
+ * site. They arrive per-box, over the paired connection, and live only in memory.
+ */
+let relayAuth: { username: string; password: string } | null = null;
+
+/** Called by AgentProvider with whatever the paired box reported. */
+export function setRelayCredentials(next: { username: string; password: string } | null): void {
+  relayAuth = next && next.username && next.password ? next : null;
+}
+
+/** True when this phone can actually talk to a closed relay. */
+export function relayAuthenticated(): boolean {
+  return relayAuth !== null;
+}
+
+/** The Basic header for the relay, or nothing when it has no credentials. */
+export function relayHeaders(): Record<string, string> {
+  if (!relayAuth) return {};
+  return { Authorization: `Basic ${base64(`${relayAuth.username}:${relayAuth.password}`)}` };
+}
+
+/**
+ * The same credentials as URL userinfo.
+ *
+ * Needed only for the WebView player, and only because a WebView can set headers
+ * on the document request and on nothing else. The player page pulls a script of
+ * its own and then opens a WebSocket to `/api/ws` to negotiate WebRTC; neither
+ * carries our header, and both are refused by a closed relay. Authenticating the
+ * document through userinfo instead puts the credentials in the engine's own
+ * HTTP-auth cache for that origin, which is what gets replayed on the subresource
+ * and the socket.
+ */
+function withUserinfo(url: string): string {
+  if (!relayAuth) return url;
+  const auth = `${encodeURIComponent(relayAuth.username)}:${encodeURIComponent(relayAuth.password)}`;
+  return url.replace(/^([a-z][a-z0-9+.-]*:\/\/)/i, `$1${auth}@`);
+}
 
 const authority = (url: string) => url.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').split('/')[0];
 const hostOf = (url: string) => authority(url).split(':')[0];
@@ -66,7 +115,7 @@ export async function publishStream(name: string, rtspUri: string): Promise<bool
   if (!relayUrl) return false;
   const url = joinUrl(relayUrl, 'api/streams') + query({ name, src: rtspUri });
   try {
-    const response = await fetch(url, { method: 'PUT' });
+    const response = await fetch(url, { method: 'PUT', headers: relayHeaders() });
     return response.ok;
   } catch {
     return false;
@@ -76,7 +125,10 @@ export async function publishStream(name: string, rtspUri: string): Promise<bool
 export async function unpublishStream(name: string): Promise<void> {
   if (!relayUrl) return;
   try {
-    await fetch(joinUrl(relayUrl, 'api/streams') + query({ name }), { method: 'DELETE' });
+    await fetch(joinUrl(relayUrl, 'api/streams') + query({ name }), {
+      method: 'DELETE',
+      headers: relayHeaders(),
+    });
   } catch {
     // The camera is being removed either way.
   }
@@ -88,14 +140,96 @@ export const streamNames = (cameraId: string) => ({
   high: `${cameraId}_hd`,
 });
 
-/** The player page for a stream. Loaded in a WebView — it is plain HTML. */
-export function livePlayerUrl(name: string): string | null {
+/**
+ * The player page for a stream. Private on purpose.
+ *
+ * A bare relay URL cannot be used against a closed relay, so the only exported
+ * ways in are `livePlayerSource` and `frameSource`, which attach credentials.
+ * Exporting this again is how an unauthenticated request gets built by accident.
+ */
+function livePlayerUrl(name: string): string | null {
   if (!relayUrl) return null;
   return joinUrl(relayUrl, 'stream.html') + query({ src: name, mode: 'webrtc,mse,mjpeg' });
 }
 
-/** One still frame of a stream, for drawing areas on. go2rtc renders it on demand. */
-export function frameUrl(name: string): string | null {
+/**
+ * Everything a WebView needs to play a stream from a closed relay.
+ *
+ * `headers` authenticates the document; `uri` carries the same credentials as
+ * userinfo so the page's own script and its WebSocket are covered too — see
+ * `withUserinfo`. `injectedJavaScript` is a belt-and-braces shim for engines
+ * that decline to replay cached credentials on a WebSocket handshake: it adds
+ * the userinfo to the socket URL the player builds from `location`.
+ */
+export function livePlayerSource(name: string): {
+  uri: string;
+  headers: Record<string, string>;
+  injectedJavaScript: string;
+} | null {
+  const url = livePlayerUrl(name);
+  if (!url) return null;
+  return {
+    uri: withUserinfo(url),
+    headers: relayHeaders(),
+    injectedJavaScript: websocketAuthShim(),
+  };
+}
+
+/**
+ * Patches `WebSocket` inside the player page so its handshake carries the relay
+ * credentials. Injected before the page's own script runs.
+ *
+ * A browser cannot set headers on a WebSocket, so the only channel is userinfo
+ * in the socket URL — which the constructor does accept and send as Basic auth.
+ * go2rtc's player builds that URL from `location`, and `location` never exposes
+ * userinfo, so it would otherwise build an unauthenticated one.
+ */
+export function websocketAuthShim(): string {
+  if (!relayAuth) return 'true;';
+  const user = JSON.stringify(encodeURIComponent(relayAuth.username));
+  const pass = JSON.stringify(encodeURIComponent(relayAuth.password));
+  // Plain string surgery rather than a regular expression: this source has to
+  // survive being embedded in a template literal and then parsed again inside
+  // the WebView, and a regex's backslashes are one escaping layer too many to
+  // be confident about.
+  return `(function(){try{
+  var U=${user},P=${pass},N=window.WebSocket;
+  if(!N)return;
+  function authed(url){
+    var s=String(url), i=s.indexOf('://');
+    if(i<0)return s;
+    var rest=s.slice(i+3);
+    var slash=rest.indexOf('/');
+    var host=slash<0?rest:rest.slice(0,slash);
+    if(host.indexOf('@')>=0)return s;
+    return s.slice(0,i+3)+U+':'+P+'@'+rest;
+  }
+  function Patched(url,protocols){
+    return protocols===undefined?new N(authed(url)):new N(authed(url),protocols);
+  }
+  Patched.prototype=N.prototype;
+  ['CONNECTING','OPEN','CLOSING','CLOSED'].forEach(function(k,i){Patched[k]=i;});
+  window.WebSocket=Patched;
+}catch(e){}})();true;`;
+}
+
+/**
+ * One still frame of a stream, for drawing areas on. go2rtc renders it on demand.
+ * Private for the same reason as `livePlayerUrl` — use `frameSource`.
+ */
+function frameUrl(name: string): string | null {
   if (!relayUrl) return null;
   return joinUrl(relayUrl, 'api/frame.jpeg') + query({ src: name, t: Date.now() });
+}
+
+/**
+ * A still frame as an `<Image>` source.
+ *
+ * React Native's image loader sends `headers` from the source object, so this
+ * needs no userinfo — a single request with nothing loaded afterwards.
+ */
+export function frameSource(name: string): { uri: string; headers: Record<string, string> } | null {
+  const url = frameUrl(name);
+  if (!url) return null;
+  return { uri: url, headers: relayHeaders() };
 }

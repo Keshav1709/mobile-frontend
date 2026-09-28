@@ -8,10 +8,50 @@ type Options = {
   body?: unknown;
   headers?: Record<string, string>;
   timeoutMs?: number;
+  /**
+   * How many extra attempts a transient failure gets. Two by default.
+   *
+   * Set it to 0 for a call that already has a fallback running beside it: the
+   * sign-in path asks the registry and the dashboard at once, and retrying the
+   * registry there would hold sign-in open long after the dashboard answered.
+   */
+  retries?: number;
 };
 
 /** Long enough for the dashboard's user lookup to warm, short enough not to be felt. */
 const RETRY_DELAY_MS = 400;
+
+/**
+ * Codes that mean "nobody answered", as opposed to "the answer was no".
+ *
+ * A cold registry behind a tunnelled database takes several seconds to serve
+ * its first request, and the first launch of the day reliably spent that budget
+ * and then showed a failure for something that works on the next attempt. None
+ * of these is a real answer about the caller's data, so none of them is worth
+ * putting in front of an operator until we have actually stopped trying.
+ */
+const TRANSIENT = new Set([
+  'TIMEOUT',
+  'NETWORK_ERROR',
+  'DATABASE_UNREACHABLE',
+  'SERVER_ERROR',
+  'NOT_PROVISIONED',
+]);
+
+/**
+ * How long the whole call may take, retries included.
+ *
+ * Without a shared deadline, three attempts at a thirty-second timeout is a
+ * ninety-second wait, which is worse than the error it was trying to avoid.
+ * Attempts stop as soon as the budget is spent, so a slow first attempt buys
+ * fewer retries rather than a longer total.
+ */
+const TOTAL_BUDGET_MS = 32000;
+
+/** 400ms, then 1.2s. Long enough for a pool to warm, short enough to sit through. */
+const backoffFor = (attempt: number) => RETRY_DELAY_MS * 3 ** attempt;
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Single fetch wrapper for both services. Always resolves errors into the
@@ -20,12 +60,39 @@ const RETRY_DELAY_MS = 400;
 export async function request<T>(
   baseUrl: string,
   path: string,
-  { method = 'GET', body, headers, timeoutMs = 15000 }: Options = {},
+  options: Options = {},
+): Promise<T> {
   // Two, not one: the dashboard's provisioning check fails about one request in
   // five, so a single retry still leaves roughly one launch in twenty-five
   // showing an error for something that works on the next attempt.
-  retries = 2,
+  const retries = options.retries ?? 2;
+  return attempt<T>(baseUrl, path, options, retries, retries, Date.now() + TOTAL_BUDGET_MS);
+}
+
+/**
+ * One attempt, plus however many the budget still allows.
+ *
+ * Retries cover transport failures as well as the dashboard's provisioning
+ * blip. Both used to surface on the first try, and both are usually gone by the
+ * second: the registry's connection pool is cold on the first request of a
+ * launch and warm immediately after.
+ */
+async function attempt<T>(
+  baseUrl: string,
+  path: string,
+  { method = 'GET', body, headers, timeoutMs = 15000, retries: allowed }: Options,
+  retries: number,
+  budget: number,
+  deadline: number,
 ): Promise<T> {
+  const options: Options = { method, body, headers, timeoutMs, retries: allowed };
+  const next = () => attempt<T>(baseUrl, path, options, retries - 1, budget, deadline);
+  /** How long to wait before the next try: 400ms, then 1.2s. */
+  const delay = backoffFor(budget - retries);
+  /** Try again only if there is an attempt left AND time to make it in. */
+  const again = (code: string) =>
+    retries > 0 && TRANSIENT.has(code) && Date.now() + delay < deadline;
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -39,8 +106,13 @@ export async function request<T>(
     });
   } catch (cause) {
     const aborted = cause instanceof Error && cause.name === 'AbortError';
+    const code = aborted ? 'TIMEOUT' : 'NETWORK_ERROR';
+    if (again(code)) {
+      await wait(delay);
+      return next();
+    }
     throw new RequestError({
-      code: aborted ? 'TIMEOUT' : 'NETWORK_ERROR',
+      code,
       message: aborted ? 'The request timed out.' : 'The service could not be reached.',
     });
   } finally {
@@ -51,12 +123,14 @@ export async function request<T>(
 
   if (!response.ok) {
     const error = errorFrom(payload, response.status);
-    // The dashboard intermittently refuses a perfectly good token with
-    // "User is not provisioned" — observed 1 failure in 5 against production,
-    // seconds apart, same token. Retry once rather than show a refusal.
-    if (error.code === 'NOT_PROVISIONED' && retries > 0) {
-      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
-      return request<T>(baseUrl, path, { method, body, headers, timeoutMs }, retries - 1);
+    // Retried rather than shown: the dashboard intermittently refuses a
+    // perfectly good token with "User is not provisioned" (observed 1 failure
+    // in 5 against production, seconds apart, same token), and the registry
+    // answers 503 while its database connection is still coming up. Neither is
+    // an answer about this caller's data.
+    if (again(error.code)) {
+      await wait(delay);
+      return next();
     }
     // One place decides what an expired session means, instead of every screen
     // showing a message the person cannot act on.

@@ -18,7 +18,7 @@ import { Screen } from '@/components/Screen';
 import type { Direction } from '@/onvif/ptz';
 import type { Credentials } from '@/onvif/soap';
 import { move, stop } from '@/onvif/ptz';
-import { livePlayerUrl, streamNames, unpublishStream } from '@/onvif/relay';
+import { livePlayerSource, streamNames, unpublishStream } from '@/onvif/relay';
 import { haptic } from '@/lib/haptics';
 import { agoLabel } from '@/lib/cache';
 import { healthDescription, healthOf, healthLabel } from '@/lib/cameraHealth';
@@ -196,6 +196,8 @@ export default function Live() {
   }
 
   const streams = streamNames(camera.camera_id);
+  // Rebuilt when the quality toggle moves, because each stream is its own name.
+  const player = livePlayerSource(hd ? streams.high : streams.preview);
 
   const areaCount = camera.zones_json?.length ?? 0;
   const lastSeen = camera.last_seen?.slice(0, 19).replace('T', ' ');
@@ -231,11 +233,14 @@ export default function Live() {
 
       {lan ? (
         <View style={[styles.player, { borderColor: color.border }]}>
+          {/* The relay is closed, so the player has to authenticate three
+              separate times: the document, the script it pulls, and the
+              WebSocket it negotiates WebRTC over. `livePlayerSource` carries
+              credentials for all three — see src/onvif/relay.ts. */}
           <WebView
             key={`${camera.camera_id}-${hd ? 'hd' : 'preview'}`}
-            source={{
-              uri: livePlayerUrl(hd ? streams.high : streams.preview) ?? '',
-            }}
+            source={player ? { uri: player.uri, headers: player.headers } : { uri: '' }}
+            injectedJavaScriptBeforeContentLoaded={player?.injectedJavaScript}
             allowsInlineMediaPlayback
             mediaPlaybackRequiresUserAction={false}
             style={styles.webview}

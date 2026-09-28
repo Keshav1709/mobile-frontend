@@ -167,6 +167,31 @@ export type ManifestResult = {
 };
 
 /**
+ * The manifest is the slowest call the app makes, and launch used to make it twice.
+ *
+ * `AuthProvider` asks for one so a sign-in can complete even when the registry is
+ * unreachable; `ConsoleProvider` then asks for the same organisation's manifest a
+ * moment later, because it is the thing that decides which centre is open. Both are
+ * needed, and both were paying the full round trip — against a tunnelled database
+ * that is several seconds each, back to back, before the camera list is even
+ * requested.
+ *
+ * So one in-flight request is shared, and its answer is reusable for a few seconds
+ * after it lands. That is long enough to cover the gap between the two callers on a
+ * cold start and short enough that nothing goes stale in a way anyone would notice.
+ * Anything the person actually asked for — switching centre, pull to refresh — passes
+ * `force` and always goes to the server.
+ */
+const MANIFEST_REUSE_MS = 10000;
+
+let pending: { key: string; at: number; result: Promise<ManifestResult> } | null = null;
+
+/** Drops any shared manifest. Called on sign-out so the next account starts clean. */
+export function forgetManifest(): void {
+  pending = null;
+}
+
+/**
  * The manifest, with the silent cross-org fallback made loud.
  *
  * Verified against production: asking for a centre you are not a member of returns
@@ -174,8 +199,37 @@ export type ManifestResult = {
  * correctly — but it refuses without saying so, and a switcher that trusts the request
  * would show one centre's data under another centre's name.
  */
-export async function fetchManifest(token: string, orgId?: string | null): Promise<ManifestResult> {
-  const manifest = await consoleApi.manifest(token, orgId);
-  const denied = Boolean(orgId) && manifest.org?.id !== orgId;
-  return { manifest, denied };
+export async function fetchManifest(
+  token: string,
+  orgId?: string | null,
+  { force = false }: { force?: boolean } = {},
+): Promise<ManifestResult> {
+  // Keyed on the centre asked for, never on the token: a refreshed token is the
+  // same session and must not miss a manifest that is already on its way.
+  const key = orgId ?? 'default';
+  if (!force && pending && pending.key === key && Date.now() - pending.at < MANIFEST_REUSE_MS) {
+    try {
+      return await pending.result;
+    } catch {
+      // A shared failure is not cached: fall through and ask properly.
+    }
+  }
+
+  const result = (async () => {
+    const manifest = await consoleApi.manifest(token, orgId);
+    const denied = Boolean(orgId) && manifest.org?.id !== orgId;
+    return { manifest, denied };
+  })();
+
+  pending = { key, at: Date.now(), result };
+  // A rejected promise nobody is awaiting yet is an unhandled rejection in
+  // React Native; this keeps it attached without swallowing it for callers.
+  result.catch(() => undefined);
+  try {
+    return await result;
+  } catch (cause) {
+    if (pending?.result === result) pending = null;
+    throw cause;
+  }
+
 }

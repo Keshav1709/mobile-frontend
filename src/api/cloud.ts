@@ -22,6 +22,17 @@ const CLOUD_URL = process.env.EXPO_PUBLIC_CLOUD_URL ?? 'http://127.0.0.1:8000';
  */
 const AUTH_TIMEOUT_MS = 4000;
 
+/**
+ * The sign-in calls do not retry, and the short leash above is why.
+ *
+ * `AuthProvider.profileFor` asks the registry and the dashboard manifest at the
+ * same time and takes whichever answers. Retrying the registry there would hold
+ * sign-in open for three leashes instead of one, long after the dashboard had
+ * already produced a usable profile. Everything else in the app keeps the
+ * default retries — see `Options.retries` in ./client.
+ */
+const NO_RETRY = { retries: 0 } as const;
+
 const bearer = (idToken: string) => ({ Authorization: `Bearer ${idToken}` });
 
 /** Cloud registry: sign-in, workspace setup, box liveness, camera metadata. No camera secrets. */
@@ -36,19 +47,21 @@ export const cloudApi = {
       environment: string;
       signup_enabled: boolean;
       read_only: boolean;
-    }>(CLOUD_URL, '/api/auth/config', { timeoutMs: AUTH_TIMEOUT_MS }),
+    }>(CLOUD_URL, '/api/auth/config', { timeoutMs: AUTH_TIMEOUT_MS, ...NO_RETRY }),
 
   createSession: (idToken: string, displayName?: string) =>
     request<{ ok: true; is_new: boolean; user: UserProfile }>(CLOUD_URL, '/api/auth/session', {
       method: 'POST',
       body: { id_token: idToken, display_name: displayName },
       timeoutMs: AUTH_TIMEOUT_MS,
+      ...NO_RETRY,
     }),
 
   me: (idToken: string) =>
     request<UserProfile>(CLOUD_URL, '/api/auth/me', {
       headers: { Authorization: `Bearer ${idToken}` },
       timeoutMs: AUTH_TIMEOUT_MS,
+      ...NO_RETRY,
     }),
 
   saveProfile: (idToken: string, draft: ProfileDraft) =>
