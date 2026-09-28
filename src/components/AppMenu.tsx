@@ -89,7 +89,6 @@ const SECTIONS: Section[] = [
   {
     title: 'Admin',
     items: [
-      { icon: 'profile', label: 'Profile', route: '/(tabs)/profile' },
       { icon: 'cloud', label: 'Workspace', route: '/workspace' },
       { icon: 'settings', label: 'App settings', route: '/settings' },
     ],
@@ -226,7 +225,7 @@ export function AppMenu({ visible, onClose }: { visible: boolean; onClose: () =>
               canSwitchOrg ? `${workspace}. Switch site` : `${workspace}. Open workspace`
             }
             onPress={() =>
-              canSwitchOrg ? setSitesOpen((open) => !open) : go('/(tabs)/profile')
+              canSwitchOrg ? setSitesOpen((open) => !open) : go('/workspace')
             }
             style={[styles.workspace, { backgroundColor: color.surfaceRaised, borderColor: color.border }]}
           >
@@ -304,7 +303,12 @@ export function AppMenu({ visible, onClose }: { visible: boolean; onClose: () =>
           </ScrollView>
 
           <View style={[styles.footer, { borderTopColor: color.border }]}>
-            <Pressable accessibilityRole="button" onPress={() => go('/(tabs)/profile')} style={styles.user}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Signed in as ${name}. Opens the workspace.`}
+              onPress={() => go('/workspace')}
+              style={styles.user}
+            >
               <LinearGradient colors={gradient.accent} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.userAvatar}>
                 <Text style={[font.label, { color: color.white }]}>{name.slice(0, 1).toUpperCase()}</Text>
               </LinearGradient>

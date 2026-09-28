@@ -6,7 +6,7 @@ import { goBack } from '@/lib/helpers';
 export default function ZonesIndex() {
   return (
     <Screen
-      onBack={() => goBack('/(tabs)/profile')}
+      onBack={() => goBack('/(tabs)')}
       eyebrow="Facility"
       title="Camera areas"
       subtitle="Outline the areas that matter on each camera. Change them whenever the camera moves."

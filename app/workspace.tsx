@@ -38,7 +38,7 @@ const when = (raw: string | null) => {
  */
 export default function Workspace() {
   const { color } = useTheme();
-  const { idToken } = useAuth();
+  const { idToken, user } = useAuth();
   const { orgName, orgId } = useConsole();
   const [settings, setSettings] = useState<WorkspaceSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -102,6 +102,9 @@ export default function Workspace() {
             title="Workspace"
             rows={[
               { label: 'Name', value: settings.workspace.name },
+              // Who is looking at it. This is the only screen that says so now
+              // that the profile page is not in the menu.
+              { label: 'Signed in as', value: user?.email ?? user?.phone_number ?? null },
               { label: 'Slug', value: settings.workspace.slug },
               { label: 'Type', value: settings.workspace.type },
               { label: 'Status', value: settings.workspace.status },
