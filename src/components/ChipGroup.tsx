@@ -28,6 +28,7 @@ export function ChipGroup({ label, options, value, onChange, required }: Props) 
             <Pressable
               key={option}
               accessibilityRole="radio"
+              accessibilityLabel={`${label}: ${option}`}
               accessibilityState={{ selected: active }}
               onPress={() => onChange(option)}
               style={({ pressed }) => [

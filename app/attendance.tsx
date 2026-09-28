@@ -22,6 +22,14 @@ import { useTheme } from '@/state/theme';
 import { font, radius, space } from '@/theme';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
+/**
+ * Faces drawn before the roster is collapsed behind a "show all".
+ *
+ * The roster is every enrolled person, and each one renders a photo. Twenty is
+ * a grid on a phone; five hundred is five hundred images built before the
+ * screen can paint. This is the only list in the app the server does not cap.
+ */
+const ROSTER_PREVIEW = 24;
 const TROPHY = '🏆';
 /** How many names each leaderboard shows, as the web console shows them. */
 const BOARD_SIZE = 5;
@@ -87,6 +95,8 @@ export default function Attendance() {
   const [error, setError] = useState<string | null>(null);
   const [unavailable, setUnavailable] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showAllPresent, setShowAllPresent] = useState(false);
+  const [showAllAway, setShowAllAway] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [readAt, setReadAt] = useState(() => new Date());
   const [now, setNow] = useState(() => new Date());
@@ -417,7 +427,7 @@ export default function Attendance() {
                 />
                 {present.length ? (
                   <View style={styles.faces}>
-                    {present.map((entry) => (
+                    {(showAllPresent ? present : present.slice(0, ROSTER_PREVIEW)).map((entry) => (
                       <View key={entry.person} style={styles.face}>
                         <Face name={entry.person} photo={entry.photo} />
                         <Text
@@ -432,13 +442,20 @@ export default function Attendance() {
                 ) : (
                   <Hollow text="Nobody recognised yet today." />
                 )}
+                {present.length > ROSTER_PREVIEW && !showAllPresent ? (
+                  <Button
+                    label={`Show all ${present.length}`}
+                    variant="secondary"
+                    onPress={() => setShowAllPresent(true)}
+                  />
+                ) : null}
               </Panel>
 
               {away.length ? (
                 <Panel>
                   <SectionRule label="Not in yet" meta={`${away.length}`} />
                   <View style={styles.faces}>
-                    {away.map((entry) => (
+                    {(showAllAway ? away : away.slice(0, ROSTER_PREVIEW)).map((entry) => (
                       <View key={entry.person} style={styles.face}>
                         <Face name={entry.person} photo={entry.photo} present={false} />
                         <Text
@@ -450,6 +467,13 @@ export default function Attendance() {
                       </View>
                     ))}
                   </View>
+                  {away.length > ROSTER_PREVIEW && !showAllAway ? (
+                    <Button
+                      label={`Show all ${away.length}`}
+                      variant="secondary"
+                      onPress={() => setShowAllAway(true)}
+                    />
+                  ) : null}
                 </Panel>
               ) : null}
             </>

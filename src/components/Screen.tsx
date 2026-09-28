@@ -4,6 +4,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  FlatList,
+  FlatListProps,
   ScrollView,
   ScrollViewProps,
   StyleSheet,
@@ -39,6 +41,23 @@ type Props = {
   refreshControl?: ScrollViewProps['refreshControl'];
   /** Larger title, for a screen's landing page (Home). */
   titleSize?: 'title' | 'display';
+  /**
+   * Render a long list virtually instead of a plain scroll view.
+   *
+   * A screen whose list can grow without bound should pass this rather than
+   * mapping rows into `children`: a ScrollView builds every row up front, so a
+   * few hundred of them block the first paint and then keep the memory. With
+   * `list` the rows come from `data`/`renderItem` and `children` becomes the
+   * header above them, which is what keeps the two from being nested — a
+   * virtualised list inside a scroll view loses the virtualisation entirely.
+   */
+  list?: {
+    data: readonly unknown[];
+    renderItem: FlatListProps<never>['renderItem'];
+    keyExtractor: (item: never, index: number) => string;
+    /** Shown under the rows, e.g. a "load more" control or an empty state. */
+    footer?: ReactNode;
+  };
 };
 
 export function Screen({
@@ -55,6 +74,7 @@ export function Screen({
   tabBar,
   refreshControl,
   titleSize = 'title',
+  list,
 }: Props) {
   const { color } = useTheme();
   const { status } = useAuth();
@@ -98,7 +118,26 @@ export function Screen({
             </View>
           ) : null}
 
-          {scroll ? (
+          {list ? (
+            <FlatList
+              data={list.data as never[]}
+              renderItem={list.renderItem as FlatListProps<never>['renderItem']}
+              keyExtractor={list.keyExtractor}
+              ListHeaderComponent={<>{body}</>}
+              ListFooterComponent={list.footer ? <>{list.footer}</> : null}
+              contentContainerStyle={styles.scroll}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              showsVerticalScrollIndicator={false}
+              refreshControl={refreshControl}
+              // Rows leave the window entirely on a phone, so dropping them is
+              // free; the rest are the defaults tuned down for image-heavy rows.
+              removeClippedSubviews
+              initialNumToRender={8}
+              maxToRenderPerBatch={8}
+              windowSize={7}
+            />
+          ) : scroll ? (
             <ScrollView
               contentContainerStyle={styles.scroll}
               keyboardShouldPersistTaps="handled"

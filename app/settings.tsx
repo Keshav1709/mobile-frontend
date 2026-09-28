@@ -61,7 +61,6 @@ export default function Settings() {
       </View>
 
       <ListGroup title="Facility">
-        <ListRow icon="box" label="ZeroForg Box" hint="See your box and whether it is connected" onPress={() => router.push('/box')} />
         <ListRow icon="areas" label="Camera areas" hint="Outline what matters on each camera" onPress={() => router.push('/zones')} />
         <ListRow icon="cameras" label="Add a camera" onPress={() => router.push('/onboarding')} />
       </ListGroup>

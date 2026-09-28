@@ -42,6 +42,7 @@ export function Button({ label, onPress, variant = 'primary', disabled, loading 
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={label}
       accessibilityState={{ disabled: !!inactive, busy: !!loading }}
       onPress={() => {
         haptic.tap();

@@ -4,7 +4,6 @@ import type { ZonePolygon } from '@/lib/zones';
 
 import {
   Camera,
-  Device,
   ProfileDraft,
   RegisterCamera,
   UserProfile,
@@ -59,13 +58,10 @@ export const cloudApi = {
       headers: { Authorization: `Bearer ${idToken}` },
     }),
 
-  // No bindDevice. A box is claimed on the dashboard by whoever installs it,
-  // and POST /api/devices/claim stays there. The app reads which box the
-  // workspace has and adds cameras to it; it never adopts a new one.
-
-  /** Boxes bound to the workspace, with the connect-box checks already decided. */
-  listDevices: (idToken: string) =>
-    request<Device[]>(CLOUD_URL, '/api/devices', { headers: bearer(idToken), timeoutMs: 6000 }),
+  // Nothing about boxes. They are claimed, named and checked on the dashboard
+  // by whoever installs them; the phone only adds cameras to the box a
+  // workspace already has. GET /api/devices and POST /api/devices/claim both
+  // still exist on the registry, and neither is called from here.
 
   /** Metadata only — no passwords, no authenticated RTSP URL. */
   registerCamera: (camera: RegisterCamera) =>
