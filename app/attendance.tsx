@@ -1,6 +1,6 @@
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { dashboardApi, isNotEnabled } from '@/api/dashboard';
 import { AttendanceOverview, AttendanceRanking, AttendanceStats } from '@/api/types';
@@ -14,7 +14,7 @@ import { Icon } from '@/components/Icon';
 import { Screen } from '@/components/Screen';
 import { SectionRule } from '@/components/SectionRule';
 import { BoardLoading } from '@/components/OrbitLoader';
-import { RefreshNote } from '@/components/RefreshNote';
+import { RefreshNote, SilentRefreshControl } from '@/components/RefreshNote';
 import { SkeletonCard } from '@/components/Skeleton';
 import { StatColumns } from '@/components/StatColumns';
 import { errorMessage, goBack } from '@/lib/helpers';
@@ -294,7 +294,17 @@ export default function Attendance() {
       title="Attendance"
       subtitle={workspace}
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={() => load()} tintColor={color.accent} />
+        <SilentRefreshControl refreshing={refreshing} onRefresh={() => void load()} />
+      }
+      notice={
+        <RefreshNote
+          refreshing={refreshing}
+          settled={
+            board
+              ? `${board.present_now} in today, ${board.facility_occupancy} still on site`
+              : 'Attendance is up to date'
+          }
+        />
       }
     >
       <View style={styles.controls}>
@@ -329,15 +339,6 @@ export default function Attendance() {
       {error ? (
         <Banner tone="error" title="Couldn't load" message={error} onRetry={() => void load()} />
       ) : null}
-
-      <RefreshNote
-        refreshing={refreshing}
-        settled={
-          board
-            ? `${board.present_now} in today, ${board.facility_occupancy} still on site`
-            : 'Attendance is up to date'
-        }
-      />
 
       {loading ? (
         <BoardLoading />

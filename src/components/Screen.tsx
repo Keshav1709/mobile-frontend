@@ -39,6 +39,16 @@ type Props = {
   tabBar?: boolean;
   /** Pull-to-refresh control for the scroll view. */
   refreshControl?: ScrollViewProps['refreshControl'];
+  /**
+   * A floating status line, centred near the top of the screen.
+   *
+   * For the refresh note, which used to sit in the scrolling content and so
+   * pushed the page down as it appeared and scrolled away while it was still
+   * true. Here it is outside the scroll view: it holds its position, it does not
+   * move anything under it, and it is the only refresh indicator on screen.
+   * Taps pass straight through it.
+   */
+  notice?: ReactNode;
   /** Larger title, for a screen's landing page (Home). */
   titleSize?: 'title' | 'display';
   /**
@@ -73,6 +83,7 @@ export function Screen({
   hideMenu,
   tabBar,
   refreshControl,
+  notice,
   titleSize = 'title',
   list,
 }: Props) {
@@ -118,6 +129,7 @@ export function Screen({
             </View>
           ) : null}
 
+          <View style={styles.content}>
           {list ? (
             <FlatList
               data={list.data as never[]}
@@ -153,6 +165,16 @@ export function Screen({
             body
           )}
 
+          {/* Over the content, not in it: anchored to the top of the scrolling
+              region so it clears a header of any height, and ignoring touches so
+              it never takes a tap meant for what is underneath. */}
+          {notice ? (
+            <View style={styles.notice} pointerEvents="none">
+              {notice}
+            </View>
+          ) : null}
+          </View>
+
           {footer ? (
             <View
               style={[
@@ -173,6 +195,9 @@ export function Screen({
 const styles = StyleSheet.create({
   root: { flex: 1 },
   safe: { flex: 1 },
+  /** Holds the scroll view, and gives the floating notice something to sit in. */
+  content: { flex: 1 },
+  notice: { position: 'absolute', top: space.sm, left: 0, right: 0, alignItems: 'center' },
   header: {
     flexDirection: 'row',
     alignItems: 'flex-start',

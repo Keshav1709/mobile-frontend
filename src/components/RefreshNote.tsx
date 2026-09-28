@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, StyleSheet, Text, View } from 'react-native';
+import { Animated, RefreshControl, StyleSheet, Text, View } from 'react-native';
 
 import { OrbitLoader } from '@/components/OrbitLoader';
 import { useTheme } from '@/state/theme';
@@ -53,6 +53,32 @@ export function settledLine(alerts: number, offline: number): string {
 
 const STEP_MS = 1400;
 const SETTLED_MS = 1800;
+
+/**
+ * Pull to refresh, with the platform's own spinner hidden.
+ *
+ * Two indicators for one refresh is one too many, and they disagreed: the
+ * system spinner sat in the scroll view saying only "something is happening"
+ * while the note below it said what. The gesture still has to come from a
+ * `RefreshControl` — it is the only way a scroll view offers one — so the
+ * control stays and is made invisible instead.
+ *
+ * Hidden twice over, because the two platforms draw it differently. iOS honours
+ * a transparent `tintColor`; Android draws a filled circle that needs its
+ * colours cleared as well, and is pushed above the top edge for the builds that
+ * still paint a shadow under it.
+ */
+export function SilentRefreshControl(props: { refreshing: boolean; onRefresh: () => void }) {
+  return (
+    <RefreshControl
+      {...props}
+      tintColor="transparent"
+      colors={['transparent']}
+      progressBackgroundColor="transparent"
+      progressViewOffset={-1000}
+    />
+  );
+}
 
 export function RefreshNote({
   refreshing,
@@ -109,16 +135,23 @@ export function RefreshNote({
     <Animated.View
       style={[
         styles.row,
-        { opacity: fade, backgroundColor: color.surface, borderColor: color.border },
+        {
+          opacity: fade,
+          backgroundColor: color.surface,
+          borderColor: color.border,
+          // Lifted off the page rather than sitting in it, because it now floats
+          // over the content instead of pushing it down.
+          shadowColor: '#000',
+        },
       ]}
       accessibilityLiveRegion="polite"
     >
       {refreshing ? (
-        <OrbitLoader size={22} />
+        <OrbitLoader size={18} />
       ) : (
         <View style={[styles.done, { backgroundColor: color.success }]} />
       )}
-      <Text numberOfLines={1} style={[font.label, styles.text, { color: color.textMuted }]}>
+      <Text numberOfLines={1} style={[font.label, { color: color.textMuted }]}>
         {refreshing ? WORKING[step] : settled}
       </Text>
     </Animated.View>
@@ -126,16 +159,22 @@ export function RefreshNote({
 }
 
 const styles = StyleSheet.create({
+  // Sized to its text and centred by the overlay that holds it, rather than
+  // stretched across the screen: floating over the page, a full-width bar reads
+  // as a banner announcing a problem, which a refresh is not.
   row: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'center',
     gap: space.sm,
     borderWidth: 1,
-    borderRadius: radius.lg,
-    paddingVertical: space.sm,
+    borderRadius: radius.pill,
+    paddingVertical: space.xs,
     paddingHorizontal: space.md,
-    marginBottom: space.sm,
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
   },
   done: { width: 8, height: 8, borderRadius: 4 },
-  text: { flex: 1 },
 });

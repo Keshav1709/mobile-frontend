@@ -1,6 +1,6 @@
 import { router, useFocusEffect } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Banner } from '@/components/Banner';
 import { Button } from '@/components/Button';
@@ -9,7 +9,7 @@ import { HomeTiles } from '@/components/HomeTiles';
 import { EmptyState } from '@/components/EmptyState';
 import { SkeletonCard } from '@/components/Skeleton';
 import { Pill } from '@/components/Pill';
-import { RefreshNote, settledLine } from '@/components/RefreshNote';
+import { RefreshNote, SilentRefreshControl, settledLine } from '@/components/RefreshNote';
 import { Screen } from '@/components/Screen';
 import { SectionRule } from '@/components/SectionRule';
 import { shortAgo } from '@/lib/activity';
@@ -180,19 +180,16 @@ export default function Home() {
         user?.first_name ? `${greeting(manifest?.org.timezone)}, ${user.first_name}` : greeting(manifest?.org.timezone)
       }
       titleSize="display"
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={color.textMuted} />
+      refreshControl={<SilentRefreshControl refreshing={refreshing} onRefresh={refresh} />}
+      // Floated over the page rather than sitting at the top of it, so the
+      // content no longer shifts down as it appears. See Screen's `notice`.
+      notice={
+        <RefreshNote
+          refreshing={refreshing || status === 'loading'}
+          settled={settledLine(activeCount, notSending.length)}
+        />
       }
     >
-      {/* Also shown during the first load, not only on pull to refresh. A cold
-          start has to wait for the workspace before it can ask for anything
-          else, and that wait used to be two blank skeletons — which look the
-          same whether something is happening or nothing is. The lines say which. */}
-      <RefreshNote
-        refreshing={refreshing || status === 'loading'}
-        settled={settledLine(activeCount, notSending.length)}
-      />
-
       {activeCount > 0 ? (
         <Card onPress={() => router.push('/(tabs)/alerts')}>
           <View style={styles.row}>
