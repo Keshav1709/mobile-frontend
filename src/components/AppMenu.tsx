@@ -173,15 +173,26 @@ export function AppMenu({ visible, onClose }: { visible: boolean; onClose: () =>
   // this login may simply not be allowed to do it in this organisation. A viewer
   // has no Setup; a member cannot change alert rules. Permissions are per-org and
   // come from the manifest, so they are re-read whenever the site changes.
+  /**
+   * Nothing is hidden until the manifest has actually answered.
+   *
+   * Permissions arrive with it, and `readOnly` starts true, so during the first
+   * seconds of a launch every gated item filtered out and the drawer showed
+   * four entries. That looks like an account that lost its access rather than
+   * one still loading, which is alarming and wrong.
+   */
+  const settling = status === 'idle' || status === 'loading';
   const features = new Set(user?.features ?? []);
   const sections = SECTIONS.map((section) => ({
     ...section,
-    items: section.items.filter(
-      (item) =>
-        !(readOnly && item.writes) &&
-        (!item.needs || item.needs.some((key) => features.has(key))) &&
-        (!item.perm || can(item.perm)),
-    ),
+    items: settling
+      ? section.items
+      : section.items.filter(
+          (item) =>
+            !(readOnly && item.writes) &&
+            (!item.needs || item.needs.some((key) => features.has(key))) &&
+            (!item.perm || can(item.perm)),
+        ),
   })).filter((section) => section.items.length);
 
   // The manifest names the organisation actually being read; the profile's copy is

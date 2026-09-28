@@ -18,6 +18,7 @@ import { healthLabel, healthOf, type CameraHealth } from '@/lib/cameraHealth';
 import { useAttention } from '@/state/attention';
 import { useAuth } from '@/state/auth';
 import { useCameras } from '@/state/cameras';
+import { useConsole } from '@/state/console';
 import { useTheme } from '@/state/theme';
 import { font, hue, radius, space } from '@/theme';
 import type { Palette } from '@/theme';
@@ -29,6 +30,27 @@ const DOT: Record<CameraHealth, (c: Palette) => string> = {
   disabled: (c) => c.textFaint,
   unknown: (c) => c.textFaint,
 };
+
+/**
+ * The greeting, in the site's own time rather than the phone's.
+ *
+ * A supervisor checking a Bengaluru plant from another timezone should be
+ * greeted by the plant's clock, because everything under it is the plant's day.
+ */
+function greeting(timeZone: string | undefined): string {
+  let hour: number;
+  try {
+    hour = Number(
+      new Date().toLocaleString('en-GB', { timeZone, hour: '2-digit', hour12: false }),
+    );
+  } catch {
+    hour = new Date().getHours();
+  }
+  if (!Number.isFinite(hour)) hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
 
 /** How far back "recent" reaches on the home screen. */
 const RECENT_WINDOW_MS = 60 * 60 * 1000;
@@ -53,6 +75,7 @@ const PILL_TONE: Record<CameraHealth, 'live' | 'warning' | 'danger' | 'idle'> = 
 export default function Home() {
   const { color } = useTheme();
   const { user } = useAuth();
+  const { manifest } = useConsole();
   const { cameras: list, status, error, cachedAt, refreshing, refresh, refreshIfStale, select } =
     useCameras();
   const {
@@ -177,8 +200,12 @@ export default function Home() {
   return (
     <Screen
       tabBar
-      eyebrow="Zero Forg Vision"
-      title={`Hi, ${user?.first_name ?? 'there'}`}
+      // The site is the eyebrow and the greeting is the title, rather than
+      // "Hi, there" for the many accounts that carry no personal name.
+      eyebrow={manifest?.org.name ?? user?.tenant_name ?? 'Zero Forg'}
+      title={
+        user?.first_name ? `${greeting(manifest?.org.timezone)}, ${user.first_name}` : greeting(manifest?.org.timezone)
+      }
       titleSize="display"
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={color.textMuted} />

@@ -21,7 +21,10 @@ export async function request<T>(
   baseUrl: string,
   path: string,
   { method = 'GET', body, headers, timeoutMs = 15000 }: Options = {},
-  retries = 1,
+  // Two, not one: the dashboard's provisioning check fails about one request in
+  // five, so a single retry still leaves roughly one launch in twenty-five
+  // showing an error for something that works on the next attempt.
+  retries = 2,
 ): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
