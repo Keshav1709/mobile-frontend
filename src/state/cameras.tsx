@@ -60,7 +60,7 @@ const CamerasContext = createContext<CamerasValue | null>(null);
 
 export function CamerasProvider({ children }: { children: ReactNode }) {
   const { status: authStatus, idToken } = useAuth();
-  const { orgId } = useConsole();
+  const { orgId, status: consoleStatus } = useConsole();
 
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [status, setStatus] = useState<Status>('loading');
@@ -97,7 +97,16 @@ export function CamerasProvider({ children }: { children: ReactNode }) {
   }, [authStatus, orgId]);
 
   const refresh = useCallback(async () => {
-    if (authStatus !== 'signedIn' || !idToken) return;
+    /**
+     * Not until the console knows which organisation this is.
+     *
+     * `orgId` starts null, so firing as soon as a token existed sent the first
+     * request with no X-Org-ID, against an org the server had to guess. It
+     * failed often enough to paint a full screen error on launch, which the
+     * retry a second later then replaced with the real list. Waiting costs
+     * nothing: the cached list is already on screen by then.
+     */
+    if (authStatus !== 'signedIn' || !idToken || consoleStatus !== 'ready') return;
     const mine = ++generation.current;
     setRefreshing(true);
     try {
@@ -118,7 +127,7 @@ export function CamerasProvider({ children }: { children: ReactNode }) {
     } finally {
       if (generation.current === mine) setRefreshing(false);
     }
-  }, [authStatus, idToken, orgId]);
+  }, [authStatus, idToken, orgId, consoleStatus]);
 
   useEffect(() => {
     void refresh();

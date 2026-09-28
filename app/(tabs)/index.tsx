@@ -342,14 +342,25 @@ export default function Home() {
         </>
       ) : null}
 
+      {/* A failed fetch is a quiet line with a way to try again, not a panel
+          announcing itself. The cameras that are already on screen stay, and
+          the one that failed is worth a sentence, not a page. */}
       {status === 'error' ? (
-        <EmptyState
-          tone="error"
-          icon="offline"
-          title="Couldn't load cameras"
-          hint={error ?? undefined}
-          action={<Button label="Try again" variant="secondary" onPress={refresh} />}
-        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${error ?? 'That did not come through'}. Tap to try again.`}
+          onPress={refresh}
+          style={({ pressed }) => [
+            styles.retry,
+            { borderColor: color.border, backgroundColor: color.surface, opacity: pressed ? 0.7 : 1 },
+          ]}
+        >
+          <View style={[styles.dot, { backgroundColor: color.textFaint }]} />
+          <Text numberOfLines={2} style={[font.label, styles.fill, { color: color.textMuted }]}>
+            {error ?? 'That did not come through'}
+          </Text>
+          <Text style={[font.label, { color: color.accent }]}>Retry</Text>
+        </Pressable>
       ) : null}
 
       {status === 'ready' && list.length === 0 ? (
@@ -538,4 +549,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   activityDot: { width: 6, height: 6, borderRadius: 3 },
+  retry: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    paddingVertical: space.md,
+    paddingHorizontal: space.md,
+    marginTop: space.sm,
+  },
 });

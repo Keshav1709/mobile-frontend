@@ -15,10 +15,13 @@ const COPY: Record<string, string> = {
   STREAM_URI_FAILED: "We connected to the camera but couldn't start its video stream.",
   STREAM_VALIDATION_FAILED: "We connected to the camera but couldn't start its video stream.",
   TIMEOUT: 'The camera took too long to respond.',
-  NETWORK_ERROR: "We couldn't reach the service. Check your connection and try again.",
+  // Said in one short line, because it is shown inline next to a retry rather
+  // than in a panel. "Check your connection" was also usually wrong: the phone
+  // is generally online and it is the far end that did not answer.
+  NETWORK_ERROR: 'No answer from ZeroForg just now.',
   DATABASE_UNREACHABLE:
     "Zero Forg can't reach your workspace data right now. It usually comes back on its own. Try again shortly.",
-  SERVER_ERROR: 'The service had a problem. Try again in a moment.',
+  SERVER_ERROR: 'ZeroForg had a problem with that.',
   UNKNOWN_ERROR: 'Something went wrong.',
 
   // Permission and entitlement are different refusals and must read
