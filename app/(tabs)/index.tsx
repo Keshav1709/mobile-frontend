@@ -129,17 +129,21 @@ export default function Home() {
    * and `out` regularly exceeds `in`, which is impossible for people and normal
    * for crossings.
    *
-   * Everything here is scoped to the open centre, not the group. `present_now`
-   * counts anyone recognised at any centre today, so pairing it with an
-   * occupancy that only counts this building reads as four people vanishing.
-   * `checked_in_here` and `facility_occupancy` are both this building, so the
-   * three numbers add up: came in, still here, and the difference has left.
+   * Came in today, still here, and the difference who have gone. `present_now`
+   * counts people recognised today and `facility_occupancy` counts who is still
+   * inside, so the third number falls out of the other two.
+   *
+   * One caveat worth knowing: `present_now` counts anyone recognised at any
+   * centre in the group, while occupancy counts this building. On a group
+   * account where people are spread across centres, somebody working at
+   * another site counts as having left this one. Single-centre accounts, which
+   * is nearly all of them, are exact.
    */
   const people = attendance
     ? {
-        in: attendance.checked_in_here,
-        out: Math.max(0, attendance.checked_in_here - attendance.facility_occupancy),
+        in: attendance.present_now,
         onSite: attendance.facility_occupancy,
+        out: Math.max(0, attendance.present_now - attendance.facility_occupancy),
       }
     : null;
 
