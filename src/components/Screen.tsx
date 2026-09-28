@@ -40,13 +40,13 @@ type Props = {
   /** Pull-to-refresh control for the scroll view. */
   refreshControl?: ScrollViewProps['refreshControl'];
   /**
-   * A floating status line, centred near the top of the screen.
+   * A status line at the top of the content, centred.
    *
-   * For the refresh note, which used to sit in the scrolling content and so
-   * pushed the page down as it appeared and scrolled away while it was still
-   * true. Here it is outside the scroll view: it holds its position, it does not
-   * move anything under it, and it is the only refresh indicator on screen.
-   * Taps pass straight through it.
+   * For the refresh note. It sits *in* the flow rather than over it, so the page
+   * moves down to make room and nothing is ever covered: the point of a
+   * pull-to-refresh indicator is that pulling reveals it, and an overlay that
+   * hides the first card is the opposite of that. It is the only refresh
+   * indicator on screen; the platform's own is hidden by `SilentRefreshControl`.
    */
   notice?: ReactNode;
   /** Larger title, for a screen's landing page (Home). */
@@ -135,7 +135,12 @@ export function Screen({
               data={list.data as never[]}
               renderItem={list.renderItem as FlatListProps<never>['renderItem']}
               keyExtractor={list.keyExtractor}
-              ListHeaderComponent={<>{body}</>}
+              ListHeaderComponent={
+                <>
+                  {notice ? <View style={styles.notice}>{notice}</View> : null}
+                  {body}
+                </>
+              }
               ListFooterComponent={list.footer ? <>{list.footer}</> : null}
               contentContainerStyle={styles.scroll}
               keyboardShouldPersistTaps="handled"
@@ -157,6 +162,7 @@ export function Screen({
               showsVerticalScrollIndicator={false}
               refreshControl={refreshControl}
             >
+              {notice ? <View style={styles.notice}>{notice}</View> : null}
               <Pressable onPress={Keyboard.dismiss} style={styles.dismiss}>
                 {body}
               </Pressable>
@@ -165,14 +171,6 @@ export function Screen({
             body
           )}
 
-          {/* Over the content, not in it: anchored to the top of the scrolling
-              region so it clears a header of any height, and ignoring touches so
-              it never takes a tap meant for what is underneath. */}
-          {notice ? (
-            <View style={styles.notice} pointerEvents="none">
-              {notice}
-            </View>
-          ) : null}
           </View>
 
           {footer ? (
@@ -197,7 +195,8 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   /** Holds the scroll view, and gives the floating notice something to sit in. */
   content: { flex: 1 },
-  notice: { position: 'absolute', top: space.sm, left: 0, right: 0, alignItems: 'center' },
+  /** Centred, and only as tall as what is in it, so an empty slot costs nothing. */
+  notice: { alignItems: 'center' },
   header: {
     flexDirection: 'row',
     alignItems: 'flex-start',

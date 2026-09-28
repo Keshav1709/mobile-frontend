@@ -54,6 +54,9 @@ export function settledLine(alerts: number, offline: number): string {
 const STEP_MS = 1400;
 const SETTLED_MS = 1800;
 
+/** Height of the pill before it has been measured; only the first reveal uses it. */
+const PILL_HEIGHT_ESTIMATE = 34;
+
 /**
  * Pull to refresh, with the platform's own spinner hidden.
  *
@@ -121,47 +124,77 @@ export function RefreshNote({
 
   const visible = refreshing || showSettled;
 
+  /**
+   * The reveal: the page slides down to make room, rather than the pill
+   * appearing on top of whatever was there.
+   *
+   * The height of the slot is animated, which is what moves the content, so this
+   * cannot run on the native driver — layout is not a property it can touch. It
+   * is one small view animating for a fifth of a second, which is the right side
+   * of that trade; opacity and the slight drop ride along on the same value so
+   * the three stay in step.
+   */
   useEffect(() => {
     Animated.timing(fade, {
       toValue: visible ? 1 : 0,
-      duration: 180,
-      useNativeDriver: true,
+      duration: 220,
+      useNativeDriver: false,
     }).start();
   }, [visible, fade]);
 
-  if (!visible) return null;
+  // Measured once, so the slot is exactly as tall as the pill at whatever text
+  // size the phone is set to. The estimate covers the very first reveal, before
+  // there has been anything to measure.
+  const [pillHeight, setPillHeight] = useState(PILL_HEIGHT_ESTIMATE);
 
   return (
     <Animated.View
-      style={[
-        styles.row,
-        {
-          opacity: fade,
-          backgroundColor: color.surface,
-          borderColor: color.border,
-          // Lifted off the page rather than sitting in it, because it now floats
-          // over the content instead of pushing it down.
-          shadowColor: '#000',
-        },
-      ]}
+      style={{
+        height: fade.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0, pillHeight + space.sm],
+        }),
+        // Collapsed, the pill is still rendered so it can be measured; this is
+        // what stops it showing through the gap on the way.
+        overflow: 'hidden',
+      }}
       accessibilityLiveRegion="polite"
     >
-      {refreshing ? (
-        <OrbitLoader size={18} />
-      ) : (
-        <View style={[styles.done, { backgroundColor: color.success }]} />
-      )}
-      <Text numberOfLines={1} style={[font.label, { color: color.textMuted }]}>
-        {refreshing ? WORKING[step] : settled}
-      </Text>
+      <Animated.View
+        onLayout={(event) => setPillHeight(event.nativeEvent.layout.height)}
+        style={[
+          styles.row,
+          {
+            opacity: fade,
+            backgroundColor: color.surface,
+            borderColor: color.border,
+            shadowColor: '#000',
+            transform: [
+              {
+                // A short drop from above, so it reads as having been pulled
+                // down rather than faded in on the spot.
+                translateY: fade.interpolate({ inputRange: [0, 1], outputRange: [-8, 0] }),
+              },
+            ],
+          },
+        ]}
+      >
+        {refreshing ? (
+          <OrbitLoader size={18} />
+        ) : (
+          <View style={[styles.done, { backgroundColor: color.success }]} />
+        )}
+        <Text numberOfLines={1} style={[font.label, { color: color.textMuted }]}>
+          {refreshing ? WORKING[step] : settled}
+        </Text>
+      </Animated.View>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  // Sized to its text and centred by the overlay that holds it, rather than
-  // stretched across the screen: floating over the page, a full-width bar reads
-  // as a banner announcing a problem, which a refresh is not.
+  // Sized to its text and centred, rather than stretched across the screen: a
+  // full-width bar reads as a banner announcing a problem, which a refresh is not.
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -171,10 +204,10 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     paddingVertical: space.xs,
     paddingHorizontal: space.md,
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   done: { width: 8, height: 8, borderRadius: 4 },
 });
