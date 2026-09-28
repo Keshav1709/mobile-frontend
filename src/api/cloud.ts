@@ -1,4 +1,5 @@
 import { request } from './client';
+import { RequestError } from './errors';
 import { DASHBOARD_URL, headers as dashboardHeaders } from './console';
 import type { ZonePolygon } from '@/lib/zones';
 
@@ -10,6 +11,20 @@ import {
 } from './types';
 
 const CLOUD_URL = process.env.EXPO_PUBLIC_CLOUD_URL ?? 'http://127.0.0.1:8000';
+
+/**
+ * Whether a registry address was actually configured for this build.
+ *
+ * Unset, `CLOUD_URL` falls back to a loopback address that means nothing on a
+ * phone, and every call to it is a wait for a connection that cannot succeed.
+ * The app is built to run without the registry, so when no address was given it
+ * is not asked at all rather than asked and timed out — which makes deleting the
+ * variable a clean way to turn it off, instead of a slow way.
+ */
+const REGISTRY_CONFIGURED = Boolean(
+  (process.env.EXPO_PUBLIC_CLOUD_URL ?? '').trim() &&
+    !/^https?:\/\/(127\.0\.0\.1|localhost)\b/i.test(process.env.EXPO_PUBLIC_CLOUD_URL ?? ''),
+);
 
 /**
  * The registry gets a short leash on anything in the sign-in path.
@@ -33,6 +48,73 @@ const AUTH_TIMEOUT_MS = 4000;
  */
 const NO_RETRY = { retries: 0 } as const;
 
+/**
+ * How long the registry is left alone after it fails to answer at all.
+ *
+ * The registry is optional by design — `AuthProvider` builds the session from
+ * the dashboard manifest when it is missing — but "optional" was still costing a
+ * wait per call. Every launch asked it for `/api/auth/config`, then for a
+ * session, and each of those sat through a DNS or connect failure before the
+ * fallback started. When the configured host does not resolve at all, that is
+ * the whole of the delay people see on sign-in, paid once per call rather than
+ * once per launch.
+ *
+ * So a transport failure is remembered. The next call inside this window gives
+ * up immediately with the same error, the fallback runs at once, and the
+ * registry is tried again after it — a service that is merely restarting is back
+ * within a minute, and one that was never deployed stops being asked.
+ *
+ * Only transport failures count. A refusal (no such account, read-only) is a
+ * real answer from a service that is plainly up, and must not stop us asking.
+ */
+const UNREACHABLE_FOR_MS = 60000;
+
+/** Codes that mean the registry did not answer, as opposed to answering "no". */
+const TRANSPORT = new Set(['NETWORK_ERROR', 'TIMEOUT']);
+
+let unreachableUntil = 0;
+
+/** Tests and the diagnostics screen; also called when the address changes. */
+export function resetRegistryHealth(): void {
+  unreachableUntil = 0;
+}
+
+/** True while the registry is being skipped. */
+export function registryUnreachable(): boolean {
+  return Date.now() < unreachableUntil;
+}
+
+/** Whether this build has a registry to talk to at all. For diagnostics. */
+export function registryConfigured(): boolean {
+  return REGISTRY_CONFIGURED;
+}
+
+/**
+ * Wraps a registry call with the circuit above.
+ *
+ * Rethrows the same `NETWORK_ERROR` a real attempt would have produced, so every
+ * caller's existing handling is unchanged — they cannot tell a skipped call from
+ * a failed one, which is the point.
+ */
+async function viaRegistry<T>(call: () => Promise<T>): Promise<T> {
+  if (!REGISTRY_CONFIGURED || registryUnreachable()) {
+    throw new RequestError({
+      code: 'NETWORK_ERROR',
+      message: 'The service could not be reached.',
+    });
+  }
+  try {
+    const answer = await call();
+    unreachableUntil = 0;
+    return answer;
+  } catch (cause) {
+    if (cause instanceof RequestError && TRANSPORT.has(cause.code)) {
+      unreachableUntil = Date.now() + UNREACHABLE_FOR_MS;
+    }
+    throw cause;
+  }
+}
+
 const bearer = (idToken: string) => ({ Authorization: `Bearer ${idToken}` });
 
 /** Cloud registry: sign-in, workspace setup, box liveness, camera metadata. No camera secrets. */
@@ -40,6 +122,7 @@ export const cloudApi = {
   /** What the registry can do before anyone signs in, including whether it is
    *  a read-only view of the dashboard. */
   config: () =>
+    viaRegistry(() =>
     request<{
       providers: string[];
       firebase_configured: boolean;
@@ -47,22 +130,26 @@ export const cloudApi = {
       environment: string;
       signup_enabled: boolean;
       read_only: boolean;
-    }>(CLOUD_URL, '/api/auth/config', { timeoutMs: AUTH_TIMEOUT_MS, ...NO_RETRY }),
+    }>(CLOUD_URL, '/api/auth/config', { timeoutMs: AUTH_TIMEOUT_MS, ...NO_RETRY })),
 
   createSession: (idToken: string, displayName?: string) =>
-    request<{ ok: true; is_new: boolean; user: UserProfile }>(CLOUD_URL, '/api/auth/session', {
-      method: 'POST',
-      body: { id_token: idToken, display_name: displayName },
-      timeoutMs: AUTH_TIMEOUT_MS,
-      ...NO_RETRY,
-    }),
+    viaRegistry(() =>
+      request<{ ok: true; is_new: boolean; user: UserProfile }>(CLOUD_URL, '/api/auth/session', {
+        method: 'POST',
+        body: { id_token: idToken, display_name: displayName },
+        timeoutMs: AUTH_TIMEOUT_MS,
+        ...NO_RETRY,
+      }),
+    ),
 
   me: (idToken: string) =>
-    request<UserProfile>(CLOUD_URL, '/api/auth/me', {
-      headers: { Authorization: `Bearer ${idToken}` },
-      timeoutMs: AUTH_TIMEOUT_MS,
-      ...NO_RETRY,
-    }),
+    viaRegistry(() =>
+      request<UserProfile>(CLOUD_URL, '/api/auth/me', {
+        headers: { Authorization: `Bearer ${idToken}` },
+        timeoutMs: AUTH_TIMEOUT_MS,
+        ...NO_RETRY,
+      }),
+    ),
 
   saveProfile: (idToken: string, draft: ProfileDraft) =>
     request<UserProfile>(CLOUD_URL, '/api/auth/me', {
