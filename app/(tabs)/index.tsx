@@ -1,6 +1,6 @@
 import { router, useFocusEffect } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 
 import { Banner } from '@/components/Banner';
 import { Button } from '@/components/Button';
@@ -10,13 +10,12 @@ import { SkeletonCard } from '@/components/Skeleton';
 import { Pill } from '@/components/Pill';
 import { Screen } from '@/components/Screen';
 import { SectionRule } from '@/components/SectionRule';
-import { shortAgo, toActivity } from '@/lib/activity';
+import { shortAgo } from '@/lib/activity';
 import { agoLabel, cacheKey, readCache, writeCache } from '@/lib/cache';
 import { healthLabel, healthOf, type CameraHealth } from '@/lib/cameraHealth';
 import { useAttention } from '@/state/attention';
 import { useAuth } from '@/state/auth';
 import { useCameras } from '@/state/cameras';
-import { useLive } from '@/state/live';
 import { useTheme } from '@/state/theme';
 import { font, space } from '@/theme';
 import type { Palette } from '@/theme';
@@ -28,6 +27,9 @@ const DOT: Record<CameraHealth, (c: Palette) => string> = {
   disabled: (c) => c.textFaint,
   unknown: (c) => c.textFaint,
 };
+
+/** How far back "recent" reaches on the home screen. */
+const RECENT_WINDOW_MS = 60 * 60 * 1000;
 
 const PILL_TONE: Record<CameraHealth, 'live' | 'warning' | 'danger' | 'idle'> = {
   live: 'live',
@@ -51,8 +53,14 @@ export default function Home() {
   const { user } = useAuth();
   const { cameras: list, status, error, cachedAt, refreshing, refresh, refreshIfStale, select } =
     useCameras();
-  const { alerts, activeCount, presence, pictures, loaded: attentionLoaded } = useAttention();
-  const live = useLive();
+  const {
+    alerts,
+    activeCount,
+    presence,
+    pictures,
+    attendance,
+    loaded: attentionLoaded,
+  } = useAttention();
 
   /**
    * When this device last opened Home. Read once, then frozen for the visit so
@@ -94,25 +102,44 @@ export default function Home() {
     [list],
   );
 
-  /** What the cameras have seen, newest first. Arrives on the socket. */
-  const activity = useMemo(
-    () => toActivity(live.recentEvents, live.flowEvents, cameraName),
-    [live.recentEvents, live.flowEvents, cameraName],
-  );
+  /**
+   * Alerts raised in the last hour.
+   *
+   * Replaces a feed of every detection the cameras made. That feed was busy on
+   * a working site and almost none of it needed a person, which is the wrong
+   * thing to put on the screen someone checks when they want to know if they
+   * can stop looking. An empty hour renders nothing at all.
+   */
+  const recent = useMemo(() => {
+    const cutoff = Date.now() - RECENT_WINDOW_MS;
+    return alerts
+      .filter((a) => {
+        const at = a.created_at ? Date.parse(a.created_at) : NaN;
+        return Number.isFinite(at) && at >= cutoff;
+      })
+      .sort((a, b) => Date.parse(b.created_at ?? '') - Date.parse(a.created_at ?? ''))
+      .slice(0, 6);
+  }, [alerts]);
 
-  /** Site flow today, summed across cameras from the socket's own counters. */
-  const pulse = useMemo(() => {
-    const stats = live.cameras ?? [];
-    return {
-      in: stats.reduce((n, c) => n + (c.total_in || 0), 0),
-      out: stats.reduce((n, c) => n + (c.total_out || 0), 0),
-    };
-  }, [live.cameras]);
+  /**
+   * People in and out today, as the attendance board counts them.
+   *
+   * These used to be summed from the socket's per-camera counters, which count
+   * crossings rather than people: someone stepping in and out of view four
+   * times counted four times. The board is the number the rest of the product
+   * shows, so the two now agree.
+   */
+  const people = attendance
+    ? { in: attendance.people_in, out: attendance.people_out, now: attendance.present_now }
+    : null;
 
-  /** Only counts what happened while they were away, and only if that is news. */
+  /** Only counts what arrived while they were away, and only if that is news. */
   const sinceCount = useMemo(
-    () => (lastSeen ? activity.filter((a) => a.at > lastSeen).length : 0),
-    [activity, lastSeen],
+    () =>
+      lastSeen
+        ? recent.filter((a) => Date.parse(a.created_at ?? '') > lastSeen).length
+        : 0,
+    [recent, lastSeen],
   );
 
   const notSending = useMemo(
@@ -194,39 +221,43 @@ export default function Home() {
         </Card>
       ) : null}
 
-      {/* ── Site pulse: numbers that move while you look at them ───── */}
-      {live.isConnected && (pulse.in || pulse.out || sending) ? (
-        <View style={[styles.pulse, { borderColor: color.border, backgroundColor: color.surface }]}>
-          <Stat value={sending} label="watching" color={color.text} />
-          <View style={[styles.divider, { backgroundColor: color.border }]} />
-          <Stat value={pulse.in} label="in today" color={color.success} />
-          <View style={[styles.divider, { backgroundColor: color.border }]} />
-          <Stat value={pulse.out} label="out today" color={color.textMuted} />
-        </View>
-      ) : null}
+      {/* Cameras always, people only where attendance is switched on. */}
+      <View style={[styles.pulse, { borderColor: color.border, backgroundColor: color.surface }]}>
+        <Stat value={sending} label={sending === 1 ? 'camera live' : 'cameras live'} color={color.text} />
+        {notSending.length ? (
+          <>
+            <View style={[styles.divider, { backgroundColor: color.border }]} />
+            <Stat value={notSending.length} label="no picture" color={color.warning} />
+          </>
+        ) : null}
+        {people ? (
+          <>
+            <View style={[styles.divider, { backgroundColor: color.border }]} />
+            <Stat value={people.in} label="in today" color={color.success} />
+            <View style={[styles.divider, { backgroundColor: color.border }]} />
+            <Stat value={people.out} label="out today" color={color.textMuted} />
+          </>
+        ) : null}
+      </View>
 
-      {/* ── What just happened ─────────────────────────────────────── */}
-      {activity.length ? (
+      {/* Nothing in the last hour means nothing here. */}
+      {recent.length ? (
         <>
           <View style={styles.listHeader}>
             <SectionRule
-              label="What just happened"
-              meta={
-                sinceCount
-                  ? `${sinceCount} since you last looked`
-                  : live.isConnected
-                    ? 'live'
-                    : undefined
-              }
+              label="Last hour"
+              meta={sinceCount ? `${sinceCount} since you last looked` : undefined}
             />
           </View>
-          {activity.slice(0, 8).map((item) => (
-            <ActivityRow
-              key={item.id}
-              text={item.text}
-              detail={item.detail}
-              at={item.at}
-              fresh={!!lastSeen && item.at > lastSeen}
+          {recent.map((alert) => (
+            <AlertRow
+              key={alert.alert_id}
+              label={alert.label}
+              where={alert.location ?? null}
+              severity={alert.severity}
+              at={Date.parse(alert.created_at ?? '')}
+              fresh={!!lastSeen && Date.parse(alert.created_at ?? '') > lastSeen}
+              onPress={() => router.push('/(tabs)/alerts')}
             />
           ))}
         </>
@@ -332,40 +363,55 @@ function Stat({ value, label, color }: { value: number; label: string; color: st
   );
 }
 
-/**
- * One thing a camera saw. Memoised because the socket pushes often and a row
- * that has already scrolled past has no reason to repaint.
- */
-const ActivityRow = memo(function ActivityRow({
-  text,
-  detail,
+/** One alert from the last hour. Memoised so the socket does not repaint it. */
+const AlertRow = memo(function AlertRow({
+  label,
+  where,
+  severity,
   at,
   fresh,
+  onPress,
 }: {
-  text: string;
-  detail: string | null;
+  label: string;
+  where: string | null;
+  severity: string | null;
   at: number;
   fresh: boolean;
+  onPress: () => void;
 }) {
   const { color } = useTheme();
+  const serious = severity === 'critical' || severity === 'high';
   return (
-    <View style={[styles.activity, { borderBottomColor: color.border }]}>
-      {/* A dot rather than a colour on the text: new since last visit is worth
-          marking, but not worth shouting about. */}
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${label}${where ? `, ${where}` : ''}, ${shortAgo(at)}`}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.activity,
+        { borderBottomColor: color.border, opacity: pressed ? 0.6 : 1 },
+      ]}
+    >
+      {/* A dot, not coloured text: new since the last visit is worth marking,
+          not worth shouting about. */}
       <View
         style={[
           styles.activityDot,
           { backgroundColor: fresh ? color.accent : 'transparent' },
         ]}
       />
-      <Text numberOfLines={1} style={[font.body, styles.fill, { color: color.text }]}>
-        {text}
-      </Text>
-      {detail ? (
-        <Text style={[font.monoSmall, { color: color.textMuted }]}>{detail}</Text>
-      ) : null}
+      <View style={styles.fill}>
+        <Text numberOfLines={1} style={[font.body, { color: color.text }]}>
+          {label}
+        </Text>
+        {where ? (
+          <Text numberOfLines={1} style={[font.monoSmall, { color: color.textFaint }]}>
+            {where}
+          </Text>
+        ) : null}
+      </View>
+      {serious ? <Pill label={severity ?? 'alert'} tone="danger" dot /> : null}
       <Text style={[font.monoSmall, { color: color.textFaint }]}>{shortAgo(at)}</Text>
-    </View>
+    </Pressable>
   );
 });
 

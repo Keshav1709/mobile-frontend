@@ -75,7 +75,7 @@ export const healthLabel: Record<CameraHealth, string> = {
 export const healthDescription: Record<CameraHealth, string> = {
   live: 'sending pictures',
   stalled: 'paused, last picture within the last few minutes',
-  down: 'not sending pictures — needs checking',
+  down: 'not sending pictures, needs checking',
   disabled: 'turned off',
   unknown: 'status not known yet',
 };

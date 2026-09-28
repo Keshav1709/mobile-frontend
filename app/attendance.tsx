@@ -20,6 +20,7 @@ import { useAuth } from '@/state/auth';
 import { useConsole } from '@/state/console';
 import { useTheme } from '@/state/theme';
 import { font, radius, space } from '@/theme';
+import { agoLabel, cacheKey, readCache, writeCache } from '@/lib/cache';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
 /**
@@ -99,6 +100,8 @@ export default function Attendance() {
   const [showAllAway, setShowAllAway] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [readAt, setReadAt] = useState(() => new Date());
+  /** When the painted board was fetched, if it came from this phone's cache. */
+  const [cachedAt, setCachedAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => new Date());
   const live = useRef(true);
 
@@ -114,6 +117,28 @@ export default function Attendance() {
   const viewMonth = cursor?.month ?? Number(todayIso.slice(5, 7));
   const statsDays = windowDays(viewYear, viewMonth, todayIso);
 
+  /**
+   * Paint the board this phone last saw, immediately.
+   *
+   * The overview takes seconds to build server side, and this screen used to
+   * show a skeleton for all of it. Attendance barely changes minute to minute,
+   * so the last one is almost always right, and a number that is a few minutes
+   * old and labelled as such beats an empty screen.
+   */
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const cached = await readCache<AttendanceOverview>(cacheKey.attendance(orgId, boardDate));
+      if (!alive || !cached) return;
+      setBoard((current) => current ?? cached.data);
+      setCachedAt(cached.at);
+      setLoading(false);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [orgId, boardDate]);
+
   const load = useCallback(
     async (quiet = false) => {
       if (!idToken) return;
@@ -126,6 +151,8 @@ export default function Attendance() {
         ]);
         if (!live.current) return;
         setBoard(overview);
+        setCachedAt(null);
+        void writeCache(cacheKey.attendance(orgId, boardDate), overview);
         setStats(trend);
         setRanking(ranks);
         setReadAt(new Date());
@@ -237,9 +264,18 @@ export default function Attendance() {
     >
       <View style={styles.controls}>
         <View style={[styles.clock, { borderColor: color.border }]}>
-          <View style={[styles.pulse, { backgroundColor: color.success }]} />
+          {/* Amber while the board on screen came from this phone's cache, so
+              the numbers are never presented as fresher than they are. */}
+          <View
+            style={[
+              styles.pulse,
+              { backgroundColor: cachedAt ? color.warning : color.success },
+            ]}
+          />
           <Text style={[font.mono, { color: color.textMuted }]}>
-            {hhmm(readAt)} · {ago(readAt, now)}
+            {cachedAt
+              ? `saved ${agoLabel(cachedAt)}`
+              : `${hhmm(readAt)} · ${ago(readAt, now)}`}
           </Text>
         </View>
       </View>

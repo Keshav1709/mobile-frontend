@@ -1,8 +1,8 @@
-import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
 import { dashboardApi } from '@/api/dashboard';
-import type { Alert, AlertsPage } from '@/api/types';
+import type { Alert, AlertsPage, AttendanceOverview } from '@/api/types';
 import type { LiveCamera } from '@/lib/cameraHealth';
 import { useAuth } from '@/state/auth';
 import { useConsole } from '@/state/console';
@@ -33,6 +33,14 @@ type AttentionValue = {
    * with a broken stream still reports online. Undefined means not checked yet.
    */
   pictures: Record<string, boolean>;
+  /**
+   * Today's real people count, straight from the attendance board.
+   *
+   * Null when the workspace has no attendance, or the role cannot see it. The
+   * home screen leaves the numbers out entirely rather than showing zeros,
+   * which would read as a quiet day rather than a missing feature.
+   */
+  attendance: AttendanceOverview | null;
   /** False until the first answer, so callers can tell empty from unknown. */
   loaded: boolean;
   refresh: () => Promise<void>;
@@ -44,6 +52,7 @@ const EMPTY: AttentionValue = {
   unavailableCameras: [],
   presence: {},
   pictures: {},
+  attendance: null,
   loaded: false,
   refresh: async () => {},
 };
@@ -54,6 +63,17 @@ const AttentionContext = createContext<AttentionValue>(EMPTY);
 const HOME_LIMIT = 20;
 /** How often health is re-checked while the app is in front. */
 const PRESENCE_MS = 30000;
+/**
+ * The soonest a socket event may trigger another refetch.
+ *
+ * `revision` bumps on every event the edge reports, which on a working site is
+ * constant. Refetching on each one meant three API calls and a picture per
+ * camera, several times a minute, which saturated the phone's connection and
+ * left everything else queued behind it.
+ */
+const EVENT_THROTTLE_MS = 15000;
+/** Pictures are the expensive check, so they run on their own slower clock. */
+const PICTURE_MS = 60000;
 
 export function AttentionProvider({ children }: { children: ReactNode }) {
   const { idToken, getToken } = useAuth();
@@ -65,41 +85,31 @@ export function AttentionProvider({ children }: { children: ReactNode }) {
   const [unavailableCameras, setUnavailable] = useState<AlertsPage['unavailable_cameras']>([]);
   const [presence, setPresence] = useState<Record<string, LiveCamera>>({});
   const [pictures, setPictures] = useState<Record<string, boolean>>({});
+  const [attendance, setAttendance] = useState<AttendanceOverview | null>(null);
+  /** Read by the picture check without making it depend on presence. */
+  const presenceRef = useRef<Record<string, LiveCamera>>({});
   const [loaded, setLoaded] = useState(false);
 
   const allowed = can('alerts.view');
+  const canSeePeople = can('people.view');
 
   const refresh = useCallback(async () => {
     if (!idToken || consoleStatus !== 'ready' || !allowed) return;
     try {
       const token = (await getToken()) ?? idToken;
-      const [page, rows] = await Promise.all([
+      const [page, rows, board] = await Promise.all([
         dashboardApi.alerts(token, 'active', { siteId, limit: HOME_LIMIT }),
         dashboardApi.liveCameras(token).catch(() => null),
+        canSeePeople ? dashboardApi.attendanceOverview(token).catch(() => null) : null,
       ]);
+      if (board) setAttendance(board);
       setAlerts(page.alerts);
       setActiveCount(page.active_count);
       setUnavailable(page.unavailable_cameras ?? []);
       if (rows) {
-        setPresence(Object.fromEntries(rows.map((row) => [row.id, row])));
-
-        /**
-         * Ask each camera for a picture. The stream endpoint answers an
-         * unauthenticated or broken camera with 200 and an SVG placeholder
-         * rather than an error, so the content type is the real answer.
-         */
-        const checked = await Promise.all(
-          rows.map(async (row) => {
-            try {
-              const res = await fetch(dashboardApi.frameUrl(row.id, token), { method: 'GET' });
-              const type = (res.headers.get('content-type') ?? '').toLowerCase();
-              return [row.id, res.ok && type.startsWith('image/') && !type.includes('svg')] as const;
-            } catch {
-              return [row.id, false] as const;
-            }
-          }),
-        );
-        setPictures(Object.fromEntries(checked));
+        const next = Object.fromEntries(rows.map((row) => [row.id, row]));
+        presenceRef.current = next;
+        setPresence(next);
       }
     } catch {
       // Leave the last answer standing. A dropped request on factory wifi
@@ -107,13 +117,51 @@ export function AttentionProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoaded(true);
     }
-  }, [idToken, getToken, consoleStatus, allowed, siteId]);
+  }, [idToken, getToken, consoleStatus, allowed, canSeePeople, siteId]);
 
-  // On open, on a centre or site change, and whenever the socket reports an
-  // alert or event. `revision` bumps on both.
+  /**
+   * Ask each camera for a picture, on its own clock.
+   *
+   * Presence counts detections as well as frames, so this is the only way to
+   * know a camera can actually be watched. It is also the expensive check: one
+   * image per camera. A minute apart, and never while backgrounded.
+   */
+  const checkPictures = useCallback(async () => {
+    if (!idToken || consoleStatus !== 'ready') return;
+    const ids = Object.keys(presenceRef.current);
+    if (!ids.length) return;
+    const token = (await getToken()) ?? idToken;
+    const checked = await Promise.all(
+      ids.map(async (id) => {
+        try {
+          const res = await fetch(dashboardApi.frameUrl(id, token));
+          const type = (res.headers.get('content-type') ?? '').toLowerCase();
+          return [id, res.ok && type.startsWith('image/') && !type.includes('svg')] as const;
+        } catch {
+          return [id, false] as const;
+        }
+      }),
+    );
+    setPictures(Object.fromEntries(checked));
+  }, [idToken, getToken, consoleStatus]);
+
+  // Open, centre change, or a site change: always.
   useEffect(() => {
     void refresh();
-  }, [refresh, orgId, live.revision]);
+  }, [refresh, orgId]);
+
+  /**
+   * Socket events, throttled. Without this a busy site refetches everything
+   * several times a minute and leaves no room for the screen someone opened.
+   */
+  const lastEventRefresh = useRef(0);
+  useEffect(() => {
+    if (!live.revision) return;
+    const now = Date.now();
+    if (now - lastEventRefresh.current < EVENT_THROTTLE_MS) return;
+    lastEventRefresh.current = now;
+    void refresh();
+  }, [live.revision, refresh]);
 
   /**
    * A camera going quiet produces no socket message, so health needs a clock as
@@ -125,6 +173,10 @@ export function AttentionProvider({ children }: { children: ReactNode }) {
     const timer = setInterval(() => {
       if (active) void refresh();
     }, PRESENCE_MS);
+    const pictureTimer = setInterval(() => {
+      if (active) void checkPictures();
+    }, PICTURE_MS);
+    void checkPictures();
     const sub = AppState.addEventListener('change', (next) => {
       const wasActive = active;
       active = next === 'active';
@@ -132,13 +184,23 @@ export function AttentionProvider({ children }: { children: ReactNode }) {
     });
     return () => {
       clearInterval(timer);
+      clearInterval(pictureTimer);
       sub.remove();
     };
-  }, [refresh]);
+  }, [refresh, checkPictures]);
 
   const value = useMemo(
-    () => ({ alerts, activeCount, unavailableCameras, presence, pictures, loaded, refresh }),
-    [alerts, activeCount, unavailableCameras, presence, pictures, loaded, refresh],
+    () => ({
+      alerts,
+      activeCount,
+      unavailableCameras,
+      presence,
+      pictures,
+      attendance,
+      loaded,
+      refresh,
+    }),
+    [alerts, activeCount, unavailableCameras, presence, pictures, attendance, loaded, refresh],
   );
 
   return <AttentionContext.Provider value={value}>{children}</AttentionContext.Provider>;

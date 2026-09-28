@@ -125,6 +125,9 @@ export async function clearCache(): Promise<void> {
  * a switch never shows the previous one's data.
  */
 export const cacheKey = {
+  /** The attendance board as last seen, so the screen opens filled. */
+  attendance: (orgId: string | null, date: string | null) =>
+    `attendance.${orgId ?? 'default'}.${date ?? 'today'}`,
   /** When this device last looked at Home, for "since you last looked". */
   lastSeen: 'home.last_seen',
   profile: 'profile',
