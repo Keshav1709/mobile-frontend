@@ -77,6 +77,14 @@ const PRESENCE_MS = 30000;
  * two are separated below — alerts on their own short throttle, presence and the
  * attendance board on this one.
  */
+/**
+ * The capabilities that mean this workspace has an attendance board.
+ *
+ * Kept in step with `AppMenu`'s `needs` for the same entry; a workspace with
+ * neither has no board to show and no endpoint that will answer.
+ */
+const ATTENDANCE_KEYS = ['attendance_board', 'attendance'];
+
 const EVENT_THROTTLE_MS = 15000;
 
 /**
@@ -91,7 +99,7 @@ const ALERT_THROTTLE_MS = 1200;
 const PICTURE_MS = 60000;
 
 export function AttentionProvider({ children }: { children: ReactNode }) {
-  const { idToken, getToken } = useAuth();
+  const { idToken, getToken, user } = useAuth();
   const { siteId, orgId, status: consoleStatus, can } = useConsole();
   const live = useLive();
 
@@ -106,7 +114,24 @@ export function AttentionProvider({ children }: { children: ReactNode }) {
   const [loaded, setLoaded] = useState(false);
 
   const allowed = can('alerts.view');
-  const canSeePeople = can('people.view');
+  /**
+   * Whether this workspace has an attendance board at all.
+   *
+   * Two separate questions, and only one of them used to be asked. `people.view`
+   * is a *permission* — an owner has every permission, including on a workspace
+   * that has never had the attendance product. TRZ is exactly that: its
+   * capabilities are `intrusion` and `loading_unloading`, its dashboard is a
+   * dock view, and the server answers this endpoint with
+   * "Attendance board is not enabled for this organization". Asking anyway
+   * bought a guaranteed 403 on every refresh.
+   *
+   * The capability is the first question and the permission the second. These
+   * are the same keys the menu already gates its Attendance entry on, which is
+   * why the entry was correctly hidden while Home showed the figures anyway.
+   */
+  const features = new Set(user?.features ?? []);
+  const hasAttendance = ATTENDANCE_KEYS.some((key) => features.has(key));
+  const canSeePeople = hasAttendance && can('people.view');
 
   const refresh = useCallback(async () => {
     if (!idToken || consoleStatus !== 'ready' || !allowed) return;
@@ -117,15 +142,22 @@ export function AttentionProvider({ children }: { children: ReactNode }) {
         dashboardApi.liveCameras(token).catch(() => null),
         canSeePeople ? dashboardApi.attendanceOverview(token).catch(() => null) : null,
       ]);
-      if (board) setAttendance(board);
+      // Set unconditionally. This used to be `if (board)`, which looks like it
+      // is protecting good data from a failed request and is in fact how one
+      // organisation's figures end up displayed under another's name: the call
+      // is caught to null when the board is unavailable, the guard skips the
+      // write, and whatever was last loaded stays on screen through an
+      // organisation switch. Signing in to a workspace with no attendance then
+      // showed the previous workspace's headcount.
+      setAttendance(board ?? null);
       setAlerts(page.alerts);
       setActiveCount(page.active_count);
       setUnavailable(page.unavailable_cameras ?? []);
-      if (rows) {
-        const next = Object.fromEntries(rows.map((row) => [row.id, row]));
-        presenceRef.current = next;
-        setPresence(next);
-      }
+      // Same reasoning as the board above: a failed read must not leave the
+      // previous workspace's cameras being reported as this one's health.
+      const next = rows ? Object.fromEntries(rows.map((row) => [row.id, row])) : {};
+      presenceRef.current = next;
+      setPresence(next);
     } catch {
       // Leave the last answer standing. A dropped request on factory wifi
       // should not empty the badge and make a live site look quiet.
@@ -181,6 +213,23 @@ export function AttentionProvider({ children }: { children: ReactNode }) {
     );
     setPictures(Object.fromEntries(checked));
   }, [idToken, getToken, consoleStatus]);
+
+  /**
+   * Drop the previous centre's figures the instant the centre changes.
+   *
+   * Clearing on the way in rather than waiting for the next response to
+   * overwrite: the request takes a moment, and for that moment the numbers on
+   * screen belong to the workspace that was open before.
+   */
+  useEffect(() => {
+    setAttendance(null);
+    setAlerts([]);
+    setActiveCount(0);
+    setUnavailable([]);
+    presenceRef.current = {};
+    setPresence({});
+    setPictures({});
+  }, [orgId]);
 
   // Open, centre change, or a site change: always.
   useEffect(() => {
