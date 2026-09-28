@@ -8,7 +8,7 @@ import { Pill } from '@/components/Pill';
 import { agoLabel, cacheKey, readCache, writeCache } from '@/lib/cache';
 import { useAuth } from '@/state/auth';
 import { useConsole } from '@/state/console';
-import { useLive } from '@/state/live';
+import { useLive, useLiveFrames } from '@/state/live';
 import { useTheme } from '@/state/theme';
 import { font, radius, space } from '@/theme';
 
@@ -159,6 +159,19 @@ export function LiveStream({ cameraId }: { cameraId: string }) {
   );
 }
 
+/**
+ * The detection boxes, and nothing else.
+ *
+ * Isolated on purpose: this is the one component allowed to re-render at the
+ * rate the socket pushes, so everything it renders has to be cheap to throw
+ * away. Its parent stays on the slow context and keeps its image buffers.
+ */
+function LiveBoxes({ cameraId }: { cameraId: string }) {
+  const { detections, frame } = useLiveFrames(cameraId);
+  if (!detections.length) return null;
+  return <DetectionOverlay detections={detections} frame={frame} />;
+}
+
 function MjpegPlayer({
   url,
   poster,
@@ -240,9 +253,17 @@ function FramePlayer({
    * over this site's picture would be worse than no boxes at all.
    */
   const liveHere = live.isConnected && (!live.forOrgId || live.forOrgId === orgId);
-  const dets = liveHere ? live.detectionsByCamera[cameraId] ?? [] : [];
-  const frameInfo = liveHere ? live.frameByCamera[cameraId] : undefined;
-  const socketFresh = frameInfo ? Date.now() - frameInfo.at < 15000 : dets.length > 0;
+
+  /**
+   * Liveness from the socket, read off `cameras` rather than the detections
+   * stream. Same answer, but this only moves when the edge reports an event,
+   * where detections move several times a second — and this component holds
+   * the image buffers, which must not be re-rendered at that rate.
+   */
+  const stats = liveHere ? live.cameras.find((c) => c.camera_id === cameraId) : undefined;
+  const socketFresh = Boolean(
+    stats?.last_event && Date.now() - new Date(stats.last_event).getTime() < 15000,
+  );
 
   // Double buffer: `front` is what is shown; the next frame loads into `back` and
   // becomes `front` only in its onLoad. The one that just went behind is then given
@@ -325,8 +346,9 @@ function FramePlayer({
           onError={failed}
         />
       ) : null}
-      {/* Above the picture, below the badge. */}
-      {dets.length ? <DetectionOverlay detections={dets} frame={frameInfo} /> : null}
+      {/* Its own component so the boxes can repaint without touching the
+          image buffers above, which would flicker the picture. */}
+      {liveHere ? <LiveBoxes cameraId={cameraId} /> : null}
 
       {!front && !showingPoster ? (
         <View style={styles.centre}>

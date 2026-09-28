@@ -91,7 +91,9 @@ const SECTIONS: Section[] = [
     items: [
       { icon: 'profile', label: 'Profile', route: '/(tabs)/profile' },
       { icon: 'cloud', label: 'Workspace', route: '/workspace' },
-      { icon: 'box', label: 'Connect a box', route: '/box', writes: true, perm: 'devices.manage' },
+      // Read-only since binding moved to the dashboard, so no write gate: a
+      // viewer should still be able to see whether the box is up.
+      { icon: 'box', label: 'ZeroForg Box', route: '/box' },
       { icon: 'settings', label: 'App settings', route: '/settings' },
     ],
   },

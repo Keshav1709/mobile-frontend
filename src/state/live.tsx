@@ -102,8 +102,6 @@ export interface LiveState {
   forOrgId: string | null;
   cameras: CameraStats[];
   recentEvents: CameraEvent[];
-  detectionsByCamera: Record<string, WsDetection[]>;
-  frameByCamera: Record<string, { w: number; h: number; at: number }>;
   flowEvents: LiveFlowEvent[];
   lastAlert: LiveAlert | null;
   /** Bumps on every `alert` and `event`; lists can refetch on it. */
@@ -115,8 +113,6 @@ const EMPTY: LiveState = {
   forOrgId: null,
   cameras: [],
   recentEvents: [],
-  detectionsByCamera: {},
-  frameByCamera: {},
   flowEvents: [],
   lastAlert: null,
   revision: 0,
@@ -136,10 +132,28 @@ function wsBase(): string | null {
 
 const LiveContext = createContext<LiveState>(EMPTY);
 
+/** Per-camera detections and frame size, keyed by camera id. */
+export type LiveFrames = {
+  detectionsByCamera: Record<string, WsDetection[]>;
+  frameByCamera: Record<string, { w: number; h: number; at: number }>;
+};
+
+const EMPTY_FRAMES: LiveFrames = { detectionsByCamera: {}, frameByCamera: {} };
+
+/**
+ * Detections arrive several times a second, per camera. Kept in their own
+ * context because anything that re-renders at that rate must be something that
+ * actually draws boxes — when this lived on the main state object, every
+ * message rebuilt it and the Alerts list re-rendered twenty times a second
+ * while showing exactly the same rows.
+ */
+const LiveFramesContext = createContext<LiveFrames>(EMPTY_FRAMES);
+
 export function LiveProvider({ children }: { children: ReactNode }) {
   const { status: authStatus, getToken } = useAuth();
   const { can, status: consoleStatus, orgId } = useConsole();
   const [state, setState] = useState<LiveState>(EMPTY);
+  const [frames, setFrames] = useState<LiveFrames>(EMPTY_FRAMES);
 
   const socket = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -233,8 +247,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
             payload.frame_w && payload.frame_h
               ? { w: payload.frame_w, h: payload.frame_h, at: Date.now() }
               : null;
-          setState((prev) => ({
-            ...prev,
+          setFrames((prev) => ({
             detectionsByCamera: {
               ...prev.detectionsByCamera,
               [payload.camera_id]: Array.isArray(payload.detections) ? payload.detections : [],
@@ -347,10 +360,31 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   }, [connect, clearTimers]);
 
   const value = useMemo(() => state, [state]);
-  return <LiveContext.Provider value={value}>{children}</LiveContext.Provider>;
+  return (
+    <LiveContext.Provider value={value}>
+      <LiveFramesContext.Provider value={frames}>{children}</LiveFramesContext.Provider>
+    </LiveContext.Provider>
+  );
 }
 
 /** Shared live state from the single socket. Empty (and never connected) outside the provider. */
+/**
+ * The detections and frame size for one camera.
+ *
+ * Deliberately narrow: a component that calls this re-renders several times a
+ * second, so it should be one that draws boxes and nothing else. Everything
+ * around it stays on `useLive`, which only moves when something real changes.
+ */
+export function useLiveFrames(cameraId: string): {
+  detections: WsDetection[];
+  frame: { w: number; h: number; at: number } | undefined;
+} {
+  const frames = useContext(LiveFramesContext);
+  const detections = frames.detectionsByCamera[cameraId];
+  const frame = frames.frameByCamera[cameraId];
+  return useMemo(() => ({ detections: detections ?? [], frame }), [detections, frame]);
+}
+
 export function useLive(): LiveState {
   return useContext(LiveContext);
 }

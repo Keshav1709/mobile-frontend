@@ -1,10 +1,9 @@
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 import { cloudApi } from '@/api/cloud';
-import { dashboardApi } from '@/api/dashboard';
 import { Banner } from '@/components/Banner';
 import { BottomSheet } from '@/components/BottomSheet';
 import { Button } from '@/components/Button';
@@ -23,11 +22,11 @@ import { livePlayerUrl, streamNames, unpublishStream } from '@/onvif/relay';
 import { haptic } from '@/lib/haptics';
 import { agoLabel } from '@/lib/cache';
 import { healthDescription, healthOf, healthLabel } from '@/lib/cameraHealth';
-import type { CameraHealth, LiveCamera } from '@/lib/cameraHealth';
+import type { CameraHealth } from '@/lib/cameraHealth';
 import { useAgent } from '@/state/agent';
 import { useAuth } from '@/state/auth';
+import { useAttention } from '@/state/attention';
 import { useCameras } from '@/state/cameras';
-import { useConsole } from '@/state/console';
 import { forgetCredentials, loadCredentials } from '@/state/cameraCredentials';
 import { useTheme } from '@/state/theme';
 import { useToast } from '@/state/toast';
@@ -36,7 +35,7 @@ import type { Palette } from '@/theme';
 
 export default function Live() {
   const { readOnly, idToken, getToken } = useAuth();
-  const { orgId } = useConsole();
+  const { presence } = useAttention();
   const { api: agent, info: agentInfo, relayUrl } = useAgent();
   const { color } = useTheme();
   const toast = useToast();
@@ -62,40 +61,11 @@ export default function Live() {
   const [error, setError] = useState<string | null>(null);
   const [panning, setPanning] = useState<Direction | null>(null);
   const [removing, setRemoving] = useState(false);
-  const [presence, setPresence] = useState<Record<string, LiveCamera>>({});
   const ptzSupported = useRef(true);
   const credentials = useRef<{ id: string; value: Credentials | null } | null>(null);
 
-  /**
-   * Which cameras are actually sending, refreshed while this screen is open.
-   *
-   * Kept separate from the camera list because the list is cached for offline
-   * use and health is only meaningful now. A failure leaves the previous answer
-   * standing rather than turning every dot grey on one dropped request.
-   */
-  useEffect(() => {
-    let live = true;
-    const tick = async () => {
-      const token = (await getToken()) ?? idToken;
-      if (!token || !live) return;
-      try {
-        const rows = await dashboardApi.liveCameras(token);
-        if (!live) return;
-        setPresence(Object.fromEntries(rows.map((row) => [row.id, row])));
-      } catch {
-        // Leave the last known health in place.
-      }
-    };
-    void tick();
-    const timer = setInterval(tick, 20000);
-    return () => {
-      live = false;
-      clearInterval(timer);
-    };
-  }, [idToken, getToken, orgId]);
-
-  const healthFor = useMemo(
-    () => (id: string): CameraHealth => healthOf(presence[id]),
+  const healthFor = useCallback(
+    (id: string): CameraHealth => healthOf(presence[id]),
     [presence],
   );
 

@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/components/Icon';
 import { IconKey } from '@/lib/icons';
+import { useAttention } from '@/state/attention';
 import { TAB_BAR_HEIGHT } from '@/lib/layout';
 import { useTheme } from '@/state/theme';
 import { family, font, radius, space } from '@/theme';
@@ -18,6 +19,7 @@ type TabBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>['tabBar']>
 const TABS: { name: string; icon: IconKey; activeIcon: IconKey; label: string }[] = [
   { name: 'index', icon: 'home', activeIcon: 'homeActive', label: 'Home' },
   { name: 'live', icon: 'live', activeIcon: 'liveActive', label: 'Live' },
+  { name: 'alerts', icon: 'alerts', activeIcon: 'warning', label: 'Alerts' },
 ];
 const TAB_WIDTH = 84;
 
@@ -31,9 +33,10 @@ export function GlassTabBar({ state, navigation }: TabBarProps) {
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
   const dark = scheme === 'dark';
+  const { activeCount } = useAttention();
 
   // Expo Router strips `href: null` before the navigator sees it, so the bar
-  // decides for itself: exactly these two, whatever else is registered.
+  // decides for itself: exactly these, whatever else is registered.
   const routes = TABS.flatMap((tab) => {
     const route = state.routes.find((candidate) => candidate.name === tab.name);
     return route ? [{ ...tab, route }] : [];
@@ -97,6 +100,7 @@ export function GlassTabBar({ state, navigation }: TabBarProps) {
 
         <View style={styles.row}>
           {routes.map(({ route, icon, activeIcon, label }) => {
+            const badge = route.name === 'alerts' ? activeCount : 0;
             const focused = state.routes[state.index]?.key === route.key;
             const onPress = () => {
               const event = navigation.emit({
@@ -111,7 +115,9 @@ export function GlassTabBar({ state, navigation }: TabBarProps) {
                 key={route.key}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: focused }}
-                accessibilityLabel={label}
+                accessibilityLabel={
+                  badge ? `${label}, ${badge} open` : label
+                }
                 onPress={onPress}
                 style={({ pressed }) => [styles.tab, pressed && styles.pressed]}
               >
@@ -129,6 +135,13 @@ export function GlassTabBar({ state, navigation }: TabBarProps) {
                     <Icon name={icon} size={18} color={color.textFaint} />
                   </View>
                 )}
+                {badge ? (
+                  <View style={[styles.badge, { backgroundColor: color.danger, borderColor: color.surface }]}>
+                    <Text style={styles.badgeText} maxFontSizeMultiplier={1.2}>
+                      {badge > 9 ? '9+' : badge}
+                    </Text>
+                  </View>
+                ) : null}
                 <Text
                   maxFontSizeMultiplier={1.3}
                   style={[font.caption, styles.label, { color: focused ? color.accent : color.textFaint }]}
@@ -159,6 +172,19 @@ const styles = StyleSheet.create({
   row: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   tab: { width: TAB_WIDTH, alignItems: 'center', justifyContent: 'center', gap: 3 },
   pressed: { opacity: 0.7 },
+  badge: {
+    position: 'absolute',
+    top: 2,
+    right: '28%',
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    paddingHorizontal: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeText: { color: '#FFFFFF', fontSize: 9.5, fontWeight: '700', lineHeight: 12 },
   iconWrap: {
     width: 44,
     height: 26,
