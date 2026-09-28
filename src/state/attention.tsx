@@ -64,14 +64,29 @@ const HOME_LIMIT = 20;
 /** How often health is re-checked while the app is in front. */
 const PRESENCE_MS = 30000;
 /**
- * The soonest a socket event may trigger another refetch.
+ * The soonest a socket event may trigger a *full* refetch.
  *
  * `revision` bumps on every event the edge reports, which on a working site is
- * constant. Refetching on each one meant three API calls and a picture per
- * camera, several times a minute, which saturated the phone's connection and
+ * constant. Refetching everything on each one meant three API calls and a picture
+ * per camera, several times a minute, which saturated the phone's connection and
  * left everything else queued behind it.
+ *
+ * The throttle is still needed, but it used to apply to the alert count too, and
+ * that was the wrong trade: the one number people watch could be fifteen seconds
+ * behind the building because it shared a clock with the expensive checks. The
+ * two are separated below — alerts on their own short throttle, presence and the
+ * attendance board on this one.
  */
 const EVENT_THROTTLE_MS = 15000;
+
+/**
+ * The soonest a socket event may re-read the alerts.
+ *
+ * One request, and it is the one that decides whether the screen says anything
+ * needs a person. Worth asking for almost immediately; still throttled, because a
+ * burst of detections should not become a burst of requests.
+ */
+const ALERT_THROTTLE_MS = 1200;
 /** Pictures are the expensive check, so they run on their own slower clock. */
 const PICTURE_MS = 60000;
 
@@ -120,6 +135,28 @@ export function AttentionProvider({ children }: { children: ReactNode }) {
   }, [idToken, getToken, consoleStatus, allowed, canSeePeople, siteId]);
 
   /**
+   * Just the alerts, for when the socket says something happened.
+   *
+   * The full `refresh` also reads every camera's presence and the attendance
+   * board, which is why it cannot run often. This is one request, so it can —
+   * and it is what makes the badge and the alert list move with the site rather
+   * than on the next slow cycle.
+   */
+  const refreshAlerts = useCallback(async () => {
+    if (!idToken || consoleStatus !== 'ready' || !allowed) return;
+    try {
+      const token = (await getToken()) ?? idToken;
+      const page = await dashboardApi.alerts(token, 'active', { siteId, limit: HOME_LIMIT });
+      setAlerts(page.alerts);
+      setActiveCount(page.active_count);
+      setUnavailable(page.unavailable_cameras ?? []);
+    } catch {
+      // Same reasoning as `refresh`: keep the last answer rather than emptying
+      // the badge because one request did not land.
+    }
+  }, [idToken, getToken, consoleStatus, allowed, siteId]);
+
+  /**
    * Ask each camera for a picture, on its own clock.
    *
    * Presence counts detections as well as frames, so this is the only way to
@@ -155,6 +192,20 @@ export function AttentionProvider({ children }: { children: ReactNode }) {
    * several times a minute and leaves no room for the screen someone opened.
    */
   const lastEventRefresh = useRef(0);
+  const lastAlertRefresh = useRef(0);
+
+  // The cheap half, on a short leash: an alert or an event means the count on
+  // screen may already be wrong, and that is the number people are watching.
+  useEffect(() => {
+    if (!live.revision) return;
+    const now = Date.now();
+    if (now - lastAlertRefresh.current < ALERT_THROTTLE_MS) return;
+    lastAlertRefresh.current = now;
+    void refreshAlerts();
+  }, [live.revision, refreshAlerts]);
+
+  // The expensive half, unchanged: presence for every camera and the attendance
+  // board, which no single detection makes stale enough to be worth re-reading.
   useEffect(() => {
     if (!live.revision) return;
     const now = Date.now();
@@ -162,6 +213,19 @@ export function AttentionProvider({ children }: { children: ReactNode }) {
     lastEventRefresh.current = now;
     void refresh();
   }, [live.revision, refresh]);
+
+  /**
+   * A person arriving or leaving moves the attendance figures on Home, and those
+   * come from the full refresh. Its own signal, so a crossing updates the counts
+   * without waiting for whatever else happens to be on the slow clock.
+   */
+  useEffect(() => {
+    if (!live.peopleRevision) return;
+    const now = Date.now();
+    if (now - lastEventRefresh.current < EVENT_THROTTLE_MS) return;
+    lastEventRefresh.current = now;
+    void refresh();
+  }, [live.peopleRevision, refresh]);
 
   /**
    * A camera going quiet produces no socket message, so health needs a clock as

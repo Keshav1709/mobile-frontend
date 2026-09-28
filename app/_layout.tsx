@@ -11,6 +11,7 @@ import { AttentionProvider } from '@/state/attention';
 import { AuthProvider } from '@/state/auth';
 import { CamerasProvider } from '@/state/cameras';
 import { ConsoleProvider } from '@/state/console';
+import { DataProvider, LiveCacheSync } from '@/state/data';
 import { LiveProvider } from '@/state/live';
 import { MenuProvider } from '@/state/menu';
 import { NotificationsProvider } from '@/state/notifications';
@@ -45,10 +46,16 @@ export default function RootLayout() {
       <ThemeProvider>
         <AuthProvider>
           <ConsoleProvider>
+            {/* Inside the console because every cache key carries the open
+                organisation, and above the screens because they share one cache. */}
+            <DataProvider>
             <CamerasProvider>
               <NotificationsProvider>
                 <LiveProvider>
                   <AttentionProvider>
+                  {/* Below LiveProvider so it can watch the socket, inside
+                      DataProvider so it shares the cache it invalidates. */}
+                  <LiveCacheSync />
                   <AgentProvider>
                     <OnboardingProvider>
                       <ToastProvider>
@@ -62,6 +69,7 @@ export default function RootLayout() {
                 </LiveProvider>
               </NotificationsProvider>
             </CamerasProvider>
+            </DataProvider>
           </ConsoleProvider>
         </AuthProvider>
       </ThemeProvider>

@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useState } from 'react';
 import { RefreshControl, StyleSheet, Text, View } from 'react-native';
 
 import { dashboardApi } from '@/api/dashboard';
@@ -10,7 +9,7 @@ import { Pill } from '@/components/Pill';
 import { Screen } from '@/components/Screen';
 import { SkeletonCard } from '@/components/Skeleton';
 import { errorMessage, goBack } from '@/lib/helpers';
-import { useAuth } from '@/state/auth';
+import { useDashboardCall } from '@/state/data';
 import { useTheme } from '@/state/theme';
 import { font, space } from '@/theme';
 
@@ -33,32 +32,24 @@ function started(raw: string | null): string {
   });
 }
 
-/** Clips the dashboard has saved, newest first. */
+/**
+ * Clips the dashboard has saved, newest first.
+ *
+ * Read through the shared cache, so coming back to this screen paints the clips
+ * already known and checks for newer ones behind them, instead of showing a
+ * skeleton and waiting. A new clip arrives as a `clips` invalidation from the
+ * live socket — see `INVALIDATES` in state/data.tsx.
+ */
 export default function Recordings() {
   const { color } = useTheme();
-  const { idToken } = useAuth();
-  const [clips, setClips] = useState<Clip[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-
-  const load = useCallback(async () => {
-    if (!idToken) return;
-    setRefreshing(true);
-    try {
-      setClips(await dashboardApi.recordings(idToken));
-      setError(null);
-    } catch (cause) {
-      setError(errorMessage(cause, "We couldn't load recordings."));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [idToken]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const {
+    data: clips = [],
+    error: failure,
+    isLoading: loading,
+    isValidating: refreshing,
+    refresh: load,
+  } = useDashboardCall<Clip[]>('/clips', (token) => dashboardApi.recordings(token));
+  const error = failure ? errorMessage(failure, "We couldn't load recordings.") : null;
 
   return (
     <Screen
@@ -67,7 +58,7 @@ export default function Recordings() {
       title="Recordings"
       subtitle="Clips saved from your cameras."
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={load} tintColor={color.accent} />
+        <RefreshControl refreshing={refreshing} onRefresh={() => void load()} tintColor={color.accent} />
       }
     >
       {error ? (

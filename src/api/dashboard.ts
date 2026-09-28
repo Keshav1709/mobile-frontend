@@ -61,6 +61,22 @@ const q = (params: Record<string, string | number | null | undefined>) => {
 const get = <T>(path: string, token: string, timeoutMs = SLOW) =>
   request<T>(DASHBOARD_URL, path, { headers: headers(token), timeoutMs });
 
+/**
+ * The same GET, by path, for the shared cache's fetcher.
+ *
+ * `state/data.tsx` keys everything as `"<orgId>::<path>"` and resolves it
+ * through this, which is how the web console is built too — one fetcher, keys
+ * that carry their own org. Typed callers keep using `dashboardApi` below; this
+ * exists so a screen can name a path and get caching, deduping and revalidation
+ * without a bespoke hook per endpoint.
+ */
+export function dashboardGet<T>(path: string, token: string, orgId?: string | null): Promise<T> {
+  return request<T>(DASHBOARD_URL, path, {
+    headers: headers(token, orgId === undefined ? undefined : orgId),
+    timeoutMs: SLOW,
+  });
+}
+
 // ── Dashboard shapes this module adapts from ──────────────────────────────────
 
 type DashPerson = {

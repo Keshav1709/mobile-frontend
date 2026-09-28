@@ -14,6 +14,7 @@ import { SectionRule } from '@/components/SectionRule';
 import { SkeletonCard } from '@/components/Skeleton';
 import { errorMessage, goBack } from '@/lib/helpers';
 import { useAuth } from '@/state/auth';
+import { useDashboardCall } from '@/state/data';
 import { useConsole } from '@/state/console';
 import { useTheme } from '@/state/theme';
 import { font, radius, space } from '@/theme';
@@ -40,29 +41,19 @@ export default function Workspace() {
   const { color } = useTheme();
   const { idToken, user } = useAuth();
   const { orgName, orgId } = useConsole();
-  const [settings, setSettings] = useState<WorkspaceSettings | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-
-  const load = useCallback(async () => {
-    if (!idToken) return;
-    setRefreshing(true);
-    try {
-      setSettings(await dashboardApi.settings(idToken));
-      setError(null);
-    } catch (cause) {
-      setError(errorMessage(cause, "We couldn't load your workspace."));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-    // orgId: the switcher on this screen changes which workspace the panels describe.
-  }, [idToken, orgId]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  // Through the shared cache. The key carries the organisation, so the switcher
+  // on this screen swaps to that centre's cached panels immediately and checks
+  // them behind it, rather than emptying the screen and refetching.
+  const {
+    data: settings,
+    error: failure,
+    isLoading: loading,
+    isValidating: refreshing,
+    refresh: load,
+  } = useDashboardCall<WorkspaceSettings>('workspace-settings', (token) =>
+    dashboardApi.settings(token),
+  );
+  const error = failure ? errorMessage(failure, "We couldn't load your workspace.") : null;
 
   const attendance = settings?.preferences.attendance ?? {};
 

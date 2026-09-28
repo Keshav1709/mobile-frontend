@@ -20,6 +20,7 @@ import { StatColumns } from '@/components/StatColumns';
 import { errorMessage, goBack } from '@/lib/helpers';
 import { useAuth } from '@/state/auth';
 import { useConsole } from '@/state/console';
+import { useLive } from '@/state/live';
 import { useTheme } from '@/state/theme';
 import { font, radius, space } from '@/theme';
 import { agoLabel, cacheKey, readCache, writeCache } from '@/lib/cache';
@@ -37,7 +38,20 @@ const TROPHY = '🏆';
 /** How many names each leaderboard shows, as the web console shows them. */
 const BOARD_SIZE = 5;
 /** The board is a live instrument; the dashboard re-reads on the same cadence. */
+/**
+ * The fallback poll, for when the live socket is not carrying anything.
+ *
+ * It is a backstop rather than the mechanism: the board is re-read the moment the
+ * socket reports somebody arriving or leaving (see the `peopleRevision` effect
+ * below), which is what makes the figures move in step with the building instead
+ * of on a timer. Without that, a person walking in at 09:00:01 showed up on the
+ * board at 09:00:15, and the clock in the corner read "14 seconds ago" — true,
+ * and not what anybody wants from a presence board.
+ */
 const POLL_MS = 15000;
+
+/** The least time between two live-triggered reads, however busy the site is. */
+const LIVE_THROTTLE_MS = 1500;
 
 /** YYYY-MM-DD for "now" in the workspace's own timezone, not the phone's. */
 function todayIn(timeZone: string | undefined): string {
@@ -91,6 +105,7 @@ export default function Attendance() {
   const { color } = useTheme();
   const { idToken, user } = useAuth();
   const { manifest, orgId } = useConsole();
+  const { peopleRevision, isConnected: liveConnected } = useLive();
   const [board, setBoard] = useState<AttendanceOverview | null>(null);
   const [stats, setStats] = useState<AttendanceStats | null>(null);
   const [ranking, setRanking] = useState<AttendanceRanking[]>([]);
@@ -180,6 +195,24 @@ export default function Attendance() {
     // orgId: a centre switch changes every number here.
     [idToken, boardDate, statsDays, orgId],
   );
+
+  /**
+   * Re-read the board when the socket says a person count moved.
+   *
+   * The dashboard already pushes this — `kpi_update` and directional crossings —
+   * and the app was throwing it away for these figures. Throttled, because a busy
+   * entrance produces several crossings a second and the board is not worth
+   * re-reading for each one; and skipped unless the screen is being looked at,
+   * so a socket busy in the background costs nothing.
+   */
+  const lastLiveRead = useRef(0);
+  useEffect(() => {
+    if (!peopleRevision || !live.current) return;
+    const since = Date.now() - lastLiveRead.current;
+    if (since < LIVE_THROTTLE_MS) return;
+    lastLiveRead.current = Date.now();
+    void load(true);
+  }, [peopleRevision, load]);
 
   // Poll only while the screen is actually being looked at.
   useFocusEffect(
@@ -272,12 +305,23 @@ export default function Attendance() {
             style={[
               styles.pulse,
               { backgroundColor: cachedAt ? color.warning : color.success },
+              // Pulses while the socket is feeding it, so "live" is visible and
+              // not just asserted.
+              !cachedAt && liveConnected ? styles.livePulse : null,
             ]}
           />
+          {/* "live" rather than an age when the socket is connected, because
+              then the age is not the useful fact — the board is being pushed as
+              the building changes, and a counter ticking "8 seconds ago" up to
+              the next read invited exactly the question it was answering. The
+              read time stays for the cached and disconnected cases, where how
+              old this is genuinely is the thing to know. */}
           <Text style={[font.mono, { color: color.textMuted }]}>
             {cachedAt
               ? `saved ${agoLabel(cachedAt)}`
-              : `${hhmm(readAt)} · ${ago(readAt, now)}`}
+              : liveConnected
+                ? `live · ${hhmm(readAt)}`
+                : `${hhmm(readAt)} · ${ago(readAt, now)}`}
           </Text>
         </View>
       </View>
@@ -341,11 +385,18 @@ export default function Attendance() {
                     : 'people on site'}
               </Text>
             </View>
-            <Text style={[font.mono, { color: color.textFaint }]}>
-              {[board.active_hours, `${board.people_in} in`, `${board.people_out} out`]
-                .filter(Boolean)
-                .join(' · ')}
-            </Text>
+            {/* `people_in` and `people_out` are not shown, and not because of
+                space. They are gate line crossings despite the names: one person
+                walking past a line several times counts several times, so the
+                figures read as "166 in, 220 out" on a site where nobody
+                vanished. More people having left than arrived is impossible for
+                people and unremarkable for crossings, and a number that cannot
+                be true is worse than no number. Home dropped them for the same
+                reason; the honest counts are the two above this line, from
+                `present_now` and `facility_occupancy`. */}
+            {board.active_hours ? (
+              <Text style={[font.mono, { color: color.textFaint }]}>{board.active_hours}</Text>
+            ) : null}
 
             <View style={[styles.note, { backgroundColor: color.surfaceSunken }]}>
               <Icon name={neverSeen ? 'warning' : 'info'} size={14} color={color.textFaint} />
@@ -737,6 +788,9 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.pill,
   },
+  // A live board is brighter than a polled one; the dot is the only thing that
+  // says so at a glance.
+  livePulse: { shadowColor: '#22c55e', shadowOpacity: 0.9, shadowRadius: 4, elevation: 3 },
   pulse: { width: 6, height: 6, borderRadius: radius.pill },
   tabs: { flexDirection: 'row', gap: space.sm },
   tab: {

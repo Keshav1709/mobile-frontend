@@ -14,6 +14,7 @@ import { SectionRule } from '@/components/SectionRule';
 import { SkeletonCard } from '@/components/Skeleton';
 import { errorMessage, goBack } from '@/lib/helpers';
 import { useAuth } from '@/state/auth';
+import { useDashboardCall } from '@/state/data';
 import { useTheme } from '@/state/theme';
 import { font, radius, space } from '@/theme';
 
@@ -54,35 +55,26 @@ function when(run: ReportRun | null): string {
 export default function Reports() {
   const { color } = useTheme();
   const { idToken, readOnly } = useAuth();
-  const [templates, setTemplates] = useState<ReportTemplate[]>([]);
-  const [runs, setRuns] = useState<ReportRun[]>([]);
   const [open, setOpen] = useState<{ template: ReportTemplate; date: string } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
 
-  const load = useCallback(async () => {
-    if (!idToken) return;
-    setRefreshing(true);
-    try {
-      const [catalogue, history] = await Promise.all([
-        dashboardApi.reportTemplates(idToken),
-        dashboardApi.reportRuns(idToken).catch(() => ({ runs: [] })),
-      ]);
-      setTemplates(catalogue.templates ?? []);
-      setRuns(history.runs ?? []);
-      setError(null);
-    } catch (cause) {
-      setError(errorMessage(cause, "We couldn't load reports."));
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [idToken]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  // One cache entry for both halves, because the screen has nothing to show
+  // without the catalogue and the history is tolerant of failing on its own.
+  const {
+    data,
+    error: failure,
+    isLoading: loading,
+    isValidating: refreshing,
+    refresh: load,
+  } = useDashboardCall('reports', async (token) => {
+    const [catalogue, history] = await Promise.all([
+      dashboardApi.reportTemplates(token),
+      dashboardApi.reportRuns(token).catch(() => ({ runs: [] as ReportRun[] })),
+    ]);
+    return { templates: catalogue.templates ?? [], runs: history.runs ?? [] };
+  });
+  const templates = data?.templates ?? [];
+  const runs = data?.runs ?? [];
+  const error = failure ? errorMessage(failure, "We couldn't load reports.") : null;
 
   if (open) {
     return (

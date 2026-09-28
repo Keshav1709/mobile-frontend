@@ -19,6 +19,9 @@ import { useConsole } from '@/state/console';
  * Ported from the web console's `lib/console/liveSocket.ts`. The server authenticates
  * the token in the query string, requires `live.view`, fans out per organisation and
  * pushes `init | cameras | stats | detections | event | flow_event | kpi_update | alert`.
+ * All of them are handled; `kpi_update` is what carries the live counters the
+ * attendance board is built from, and was previously dropped on the floor, which
+ * is why those figures only moved when a screen happened to refetch.
  * Nothing on the server was built for this; the app is simply a second client of it.
  *
  * Two things a phone must do that a browser tab never had to:
@@ -106,6 +109,17 @@ export interface LiveState {
   lastAlert: LiveAlert | null;
   /** Bumps on every `alert` and `event`; lists can refetch on it. */
   revision: number;
+  /**
+   * Bumps when the socket says a *person* count moved — a `kpi_update`, or a
+   * crossing that names a direction.
+   *
+   * Separate from `revision` on purpose. Detections arrive many times a second
+   * on a busy site, and refetching the attendance board on each one would be
+   * slower than not caching at all. This moves only when something a person
+   * would see on that board has actually changed, which is what `LiveSync` in
+   * state/data.tsx watches to decide when to re-read it.
+   */
+  peopleRevision: number;
 }
 
 const EMPTY: LiveState = {
@@ -116,6 +130,7 @@ const EMPTY: LiveState = {
   flowEvents: [],
   lastAlert: null,
   revision: 0,
+  peopleRevision: 0,
 };
 
 const INITIAL_RECONNECT_MS = 1_000;
@@ -261,6 +276,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         case 'event': {
           const next = data.payload as CameraEvent | undefined;
           if (!next?.camera_id) break;
+          // A crossing carrying counts is somebody arriving or leaving, so the
+          // attendance figures are now out of date.
+          const moved = Boolean(next.counts || next.direction);
           setState((prev) => ({
             ...prev,
             cameras: prev.cameras.map((cam) =>
@@ -275,7 +293,16 @@ export function LiveProvider({ children }: { children: ReactNode }) {
             ),
             recentEvents: [next, ...prev.recentEvents].slice(0, KEEP_EVENTS),
             revision: prev.revision + 1,
+            peopleRevision: prev.peopleRevision + (moved ? 1 : 0),
           }));
+          break;
+        }
+
+        case 'kpi_update': {
+          // The server's own signal that a counter moved. It carries no list, so
+          // there is nothing to merge — it is a cue to re-read, and that is what
+          // bumping this does.
+          setState((prev) => ({ ...prev, peopleRevision: prev.peopleRevision + 1 }));
           break;
         }
         case 'flow_event': {
@@ -284,6 +311,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
           setState((prev) => ({
             ...prev,
             flowEvents: [{ ...payload, received_at: Date.now() }, ...prev.flowEvents].slice(0, KEEP_EVENTS),
+            // A directional flow through a zone is a person moving through the
+            // building, which the boards count.
+            peopleRevision: prev.peopleRevision + (payload.direction ? 1 : 0),
           }));
           break;
         }
