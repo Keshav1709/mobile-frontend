@@ -5,6 +5,7 @@ import { Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native'
 import { Banner } from '@/components/Banner';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
+import { Glow } from '@/components/Glow';
 import { EmptyState } from '@/components/EmptyState';
 import { SkeletonCard } from '@/components/Skeleton';
 import { Pill } from '@/components/Pill';
@@ -17,7 +18,7 @@ import { useAttention } from '@/state/attention';
 import { useAuth } from '@/state/auth';
 import { useCameras } from '@/state/cameras';
 import { useTheme } from '@/state/theme';
-import { font, space } from '@/theme';
+import { font, hue, radius, space } from '@/theme';
 import type { Palette } from '@/theme';
 
 const DOT: Record<CameraHealth, (c: Palette) => string> = {
@@ -202,7 +203,9 @@ export default function Home() {
       ) : null}
 
       {notSending.length ? (
-        <Card onPress={() => router.push('/(tabs)/live')}>
+        // Straight to the first camera that is not sending, rather than to
+        // whichever one happened to be open last.
+        <Card onPress={() => open(notSending[0].camera_id)}>
           <View style={styles.row}>
             <View style={[styles.dot, { backgroundColor: color.warning }]} />
             <View style={styles.fill}>
@@ -235,26 +238,31 @@ export default function Home() {
         </Card>
       ) : null}
 
-      {/* Cameras always, people only where attendance is switched on. */}
-      <View style={[styles.pulse, { borderColor: color.border, backgroundColor: color.surface }]}>
-        <Stat value={sending} label={sending === 1 ? 'camera live' : 'cameras live'} color={color.text} />
-        {notSending.length ? (
-          <>
-            <View style={[styles.divider, { backgroundColor: color.border }]} />
-            <Stat value={notSending.length} label="no picture" color={color.warning} />
-          </>
-        ) : null}
-        {people ? (
-          <>
-            <View style={[styles.divider, { backgroundColor: color.border }]} />
-            <Stat value={people.in} label="in today" color={color.success} />
-            <View style={[styles.divider, { backgroundColor: color.border }]} />
-            <Stat value={people.onSite} label="on site now" color={color.text} />
-            <View style={[styles.divider, { backgroundColor: color.border }]} />
-            <Stat value={people.out} label="left today" color={color.textMuted} />
-          </>
-        ) : null}
-      </View>
+      {/* Three counts of people, as a grid rather than a cramped row. Each one
+          opens the attendance board, which is where the detail behind it is. */}
+      {people ? (
+        <View style={styles.grid}>
+          <StatTile
+            value={people.in}
+            label="in today"
+            tint={hue.jade}
+            wide
+            onPress={() => router.push('/attendance')}
+          />
+          <StatTile
+            value={people.onSite}
+            label="on site now"
+            tint={hue.gold}
+            onPress={() => router.push('/attendance')}
+          />
+          <StatTile
+            value={people.out}
+            label="left today"
+            tint={hue.umber}
+            onPress={() => router.push('/attendance')}
+          />
+        </View>
+      ) : null}
 
       {/* Nothing in the last hour means nothing here. */}
       {recent.length ? (
@@ -369,13 +377,46 @@ const CameraRow = memo(function CameraRow({
   );
 });
 
-function Stat({ value, label, color }: { value: number; label: string; color: string }) {
-  const { color: palette } = useTheme();
+/**
+ * One number, with a bloom of its own colour behind it.
+ *
+ * The bloom is the same Glow the rest of the app uses, tinted per tile and kept
+ * low: enough to separate the three at a glance and give the grid some depth,
+ * not so much that the figure stops being the thing you read first.
+ */
+function StatTile({
+  value,
+  label,
+  tint,
+  wide,
+  onPress,
+}: {
+  value: number;
+  label: string;
+  tint: string;
+  wide?: boolean;
+  onPress: () => void;
+}) {
+  const { color } = useTheme();
   return (
-    <View style={styles.stat}>
-      <Text style={[font.heading, styles.statValue, { color }]}>{value}</Text>
-      <Text style={[font.eyebrow, { color: palette.textFaint }]}>{label}</Text>
-    </View>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${value} ${label}. Opens attendance.`}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.tile,
+        wide ? styles.tileWide : styles.tileHalf,
+        {
+          backgroundColor: color.surface,
+          borderColor: color.border,
+          opacity: pressed ? 0.75 : 1,
+        },
+      ]}
+    >
+      <Glow tint={tint} x={0.78} y={0.12} size={0.95} opacity={0.5} />
+      <Text style={[font.display, styles.tileValue, { color: color.text }]}>{value}</Text>
+      <Text style={[font.eyebrow, { color: color.textFaint }]}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -436,17 +477,26 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   dot: { width: 9, height: 9, borderRadius: 5 },
   listHeader: { marginTop: space.lg, marginBottom: space.xs },
-  pulse: {
+  grid: {
     flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingVertical: space.md,
+    flexWrap: 'wrap',
+    gap: space.md,
     marginTop: space.md,
   },
-  stat: { flex: 1, alignItems: 'center', gap: 2 },
-  statValue: { fontVariant: ['tabular-nums'] },
-  divider: { width: 1, alignSelf: 'stretch', marginVertical: 4 },
+  tile: {
+    borderWidth: 1,
+    borderRadius: radius.xl,
+    paddingVertical: space.lg,
+    paddingHorizontal: space.lg,
+    gap: 2,
+    overflow: 'hidden',
+    minHeight: 96,
+    justifyContent: 'flex-end',
+  },
+  tileWide: { width: '100%' },
+  // Half the row, less the gap between the two.
+  tileHalf: { flexGrow: 1, flexBasis: '47%' },
+  tileValue: { fontVariant: ['tabular-nums'] },
   activity: {
     flexDirection: 'row',
     alignItems: 'center',
