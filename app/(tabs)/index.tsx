@@ -5,7 +5,7 @@ import { Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native'
 import { Banner } from '@/components/Banner';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
-import { Glow } from '@/components/Glow';
+import { HomeTiles } from '@/components/HomeTiles';
 import { EmptyState } from '@/components/EmptyState';
 import { SkeletonCard } from '@/components/Skeleton';
 import { Pill } from '@/components/Pill';
@@ -20,7 +20,7 @@ import { useAuth } from '@/state/auth';
 import { useCameras } from '@/state/cameras';
 import { useConsole } from '@/state/console';
 import { useTheme } from '@/state/theme';
-import { font, hue, radius, space } from '@/theme';
+import { font, radius, space } from '@/theme';
 import type { Palette } from '@/theme';
 
 const DOT: Record<CameraHealth, (c: Palette) => string> = {
@@ -83,7 +83,6 @@ export default function Home() {
     activeCount,
     presence,
     pictures,
-    attendance,
     loaded: attentionLoaded,
   } = useAttention();
 
@@ -145,32 +144,6 @@ export default function Home() {
       .sort((a, b) => Date.parse(b.created_at ?? '') - Date.parse(a.created_at ?? ''))
       .slice(0, 6);
   }, [alerts]);
-
-  /**
-   * People, counted as people.
-   *
-   * Deliberately not `people_in` / `people_out`. Those are gate line crossings
-   * despite the name: twenty people produced a hundred and one of them in a day,
-   * and `out` regularly exceeds `in`, which is impossible for people and normal
-   * for crossings.
-   *
-   * Came in today, still here, and the difference who have gone. `present_now`
-   * counts people recognised today and `facility_occupancy` counts who is still
-   * inside, so the third number falls out of the other two.
-   *
-   * One caveat worth knowing: `present_now` counts anyone recognised at any
-   * centre in the group, while occupancy counts this building. On a group
-   * account where people are spread across centres, somebody working at
-   * another site counts as having left this one. Single-centre accounts, which
-   * is nearly all of them, are exact.
-   */
-  const people = attendance
-    ? {
-        in: attendance.present_now,
-        onSite: attendance.facility_occupancy,
-        out: Math.max(0, attendance.present_now - attendance.facility_occupancy),
-      }
-    : null;
 
   /** Only counts what arrived while they were away, and only if that is news. */
   const sinceCount = useMemo(
@@ -275,31 +248,11 @@ export default function Home() {
         </Card>
       ) : null}
 
-      {/* Three counts of people, as a grid rather than a cramped row. Each one
-          opens the attendance board, which is where the detail behind it is. */}
-      {people ? (
-        <View style={styles.grid}>
-          <StatTile
-            value={people.in}
-            label="in today"
-            tint={hue.jade}
-            wide
-            onPress={() => router.push('/attendance')}
-          />
-          <StatTile
-            value={people.onSite}
-            label="on site now"
-            tint={hue.gold}
-            onPress={() => router.push('/attendance')}
-          />
-          <StatTile
-            value={people.out}
-            label="left today"
-            tint={hue.umber}
-            onPress={() => router.push('/attendance')}
-          />
-        </View>
-      ) : null}
+      {/* What this organisation's Home is actually made of, as the dashboard
+          composed it: a loading bay for a factory, a people board for a centre.
+          The app used to show one page to everybody, which meant a headcount on
+          workspaces that have never had attendance. See components/HomeTiles. */}
+      <HomeTiles />
 
       {/* Nothing in the last hour means nothing here. */}
       {recent.length ? (
@@ -425,48 +378,6 @@ const CameraRow = memo(function CameraRow({
   );
 });
 
-/**
- * One number, with a bloom of its own colour behind it.
- *
- * The bloom is the same Glow the rest of the app uses, tinted per tile and kept
- * low: enough to separate the three at a glance and give the grid some depth,
- * not so much that the figure stops being the thing you read first.
- */
-function StatTile({
-  value,
-  label,
-  tint,
-  wide,
-  onPress,
-}: {
-  value: number;
-  label: string;
-  tint: string;
-  wide?: boolean;
-  onPress: () => void;
-}) {
-  const { color } = useTheme();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${value} ${label}. Opens attendance.`}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.tile,
-        wide ? styles.tileWide : styles.tileHalf,
-        {
-          backgroundColor: color.surface,
-          borderColor: color.border,
-          opacity: pressed ? 0.75 : 1,
-        },
-      ]}
-    >
-      <Glow tint={tint} x={0.78} y={0.12} size={0.95} opacity={0.5} />
-      <Text style={[font.display, styles.tileValue, { color: color.text }]}>{value}</Text>
-      <Text style={[font.eyebrow, { color: color.textFaint }]}>{label}</Text>
-    </Pressable>
-  );
-}
 
 /** One alert from the last hour. Memoised so the socket does not repaint it. */
 const AlertRow = memo(function AlertRow({
@@ -531,20 +442,7 @@ const styles = StyleSheet.create({
     gap: space.md,
     marginTop: space.md,
   },
-  tile: {
-    borderWidth: 1,
-    borderRadius: radius.xl,
-    paddingVertical: space.lg,
-    paddingHorizontal: space.lg,
-    gap: 2,
-    overflow: 'hidden',
-    minHeight: 96,
-    justifyContent: 'flex-end',
-  },
-  tileWide: { width: '100%' },
   // Half the row, less the gap between the two.
-  tileHalf: { flexGrow: 1, flexBasis: '47%' },
-  tileValue: { fontVariant: ['tabular-nums'] },
   activity: {
     flexDirection: 'row',
     alignItems: 'center',

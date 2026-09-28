@@ -114,6 +114,26 @@ export interface ManifestCamera {
   site_id?: string | null;
 }
 
+/**
+ * One panel on Home, as the server composed it for this organisation.
+ *
+ * Home is not the same page everywhere and must not be built as though it were.
+ * A footwear plant's is its loading bay — trucks today, time at the dock, what is
+ * in the bay now; a CoE's is its people. The dashboard already decides this per
+ * organisation from its capabilities and hands over the answer, so the app reads
+ * the same list rather than keeping its own opinion that drifts.
+ *
+ * `kind` chooses the renderer; `id` also names the endpoint its numbers come
+ * from (`/console/home/tiles/{id}/data`).
+ */
+export interface HomeTile {
+  id: string;
+  capability: string;
+  kind: string;
+  params: Record<string, unknown>;
+  default_size: { w: number; h: number };
+}
+
 export interface ConsoleManifest {
   version: number;
   etag: string;
@@ -134,6 +154,8 @@ export interface ConsoleManifest {
   user: ManifestUser;
   nav: NavSection[];
   enabled_keys: string[];
+  /** The panels this organisation's Home is made of, in order. */
+  home?: { tiles: HomeTile[]; available_tiles: HomeTile[] };
   alerts?: { types: unknown[]; active_count: number };
   live?: { layers: string[]; frame_interval_ms: number; go2rtc: boolean };
   cameras?: ManifestCamera[];
