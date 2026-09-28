@@ -120,6 +120,8 @@ export type AttendanceOverview = {
   people_out: number;
   enrolled_total: number;
   checked_in_today: number;
+  /** People recognised at THIS centre today, where present_now counts the group. */
+  checked_in_here: number;
   on_time_rate: number;
   avg_arrival: string | null;
   greetings_today: number;

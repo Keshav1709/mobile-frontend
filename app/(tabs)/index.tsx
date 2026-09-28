@@ -127,12 +127,20 @@ export default function Home() {
    * Deliberately not `people_in` / `people_out`. Those are gate line crossings
    * despite the name: twenty people produced a hundred and one of them in a day,
    * and `out` regularly exceeds `in`, which is impossible for people and normal
-   * for crossings. Putting them under a label like "in today" reads as a
-   * hundred people arriving. `facility_occupancy` and `present_now` are counts
-   * of individuals, which is what someone glancing at this wants to know.
+   * for crossings.
+   *
+   * Everything here is scoped to the open centre, not the group. `present_now`
+   * counts anyone recognised at any centre today, so pairing it with an
+   * occupancy that only counts this building reads as four people vanishing.
+   * `checked_in_here` and `facility_occupancy` are both this building, so the
+   * three numbers add up: came in, still here, and the difference has left.
    */
   const people = attendance
-    ? { onSite: attendance.facility_occupancy, today: attendance.present_now }
+    ? {
+        in: attendance.checked_in_here,
+        out: Math.max(0, attendance.checked_in_here - attendance.facility_occupancy),
+        onSite: attendance.facility_occupancy,
+      }
     : null;
 
   /** Only counts what arrived while they were away, and only if that is news. */
@@ -235,9 +243,11 @@ export default function Home() {
         {people ? (
           <>
             <View style={[styles.divider, { backgroundColor: color.border }]} />
-            <Stat value={people.onSite} label="on site now" color={color.success} />
+            <Stat value={people.in} label="in today" color={color.success} />
             <View style={[styles.divider, { backgroundColor: color.border }]} />
-            <Stat value={people.today} label="here today" color={color.textMuted} />
+            <Stat value={people.onSite} label="on site now" color={color.text} />
+            <View style={[styles.divider, { backgroundColor: color.border }]} />
+            <Stat value={people.out} label="left today" color={color.textMuted} />
           </>
         ) : null}
       </View>
