@@ -100,7 +100,17 @@ const PICTURE_MS = 60000;
 
 export function AttentionProvider({ children }: { children: ReactNode }) {
   const { idToken, getToken, user } = useAuth();
-  const { siteId, orgId, status: consoleStatus, can } = useConsole();
+  const { siteId, orgId, status: consoleStatus, can, manifest } = useConsole();
+  /**
+   * Whether this site's video comes from its own go2rtc rather than pushed frames.
+   *
+   * It decides whether the picture check below means anything. A go2rtc site does
+   * not feed the edge frame endpoint at all — it answers with an "OFFLINE"
+   * placeholder for every camera — so checking it there does not report a camera
+   * with no picture, it reports the wrong endpoint. CoE Gandhinagar had six live
+   * cameras and every one of them marked as not sending.
+   */
+  const siteRunsGo2rtc = Boolean(manifest?.live?.go2rtc);
   const live = useLive();
 
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -197,6 +207,12 @@ export function AttentionProvider({ children }: { children: ReactNode }) {
    */
   const checkPictures = useCallback(async () => {
     if (!idToken || consoleStatus !== 'ready') return;
+    if (siteRunsGo2rtc) {
+      // Nothing to learn here: the answer would be a placeholder for every
+      // camera. Health falls back to presence, which these sites do report.
+      setPictures({});
+      return;
+    }
     const ids = Object.keys(presenceRef.current);
     if (!ids.length) return;
     const token = (await getToken()) ?? idToken;
@@ -212,7 +228,7 @@ export function AttentionProvider({ children }: { children: ReactNode }) {
       }),
     );
     setPictures(Object.fromEntries(checked));
-  }, [idToken, getToken, consoleStatus]);
+  }, [idToken, getToken, consoleStatus, siteRunsGo2rtc]);
 
   /**
    * Drop the previous centre's figures the instant the centre changes.

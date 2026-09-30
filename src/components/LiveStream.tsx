@@ -21,7 +21,14 @@ const FAIL_BEFORE_DOWN = 3;
  * nothing while a two-second frame was available the whole time. Waiting is
  * only worth it while it is plausibly about to work.
  */
-const MJPEG_FIRST_PAINT_MS = 3500;
+/**
+ * How long a stream gets to paint its first frame before we give up on it.
+ *
+ * Generous, because giving up is expensive: on a go2rtc site the fallback is the
+ * edge frame endpoint, which those sites do not feed, so a premature timeout
+ * does not degrade the picture, it removes it.
+ */
+const MJPEG_FIRST_PAINT_MS = 8000;
 
 /** A frame older than this is not worth showing as a placeholder. */
 const POSTER_MAX_AGE_MS = 6 * 60 * 60 * 1000;
@@ -57,6 +64,15 @@ export function LiveStream({ cameraId }: { cameraId: string }) {
 
   const [mode, setMode] = useState<Mode>(wantsMjpeg ? 'probing' : 'frames');
   const [mjpegUrl, setMjpegUrl] = useState<string | null>(null);
+  /**
+   * The signed single-frame URL that comes back with the stream.
+   *
+   * Kept because it is the right fallback on a go2rtc site. The edge frame
+   * endpoint is not fed at those sites and answers with an "OFFLINE" placeholder,
+   * so falling back to it turns a working camera into "has not sent a picture" —
+   * which is exactly what CoE Gandhinagar showed while its six cameras were live.
+   */
+  const [signedFrame, setSignedFrame] = useState<string | null>(null);
   const [poster, setPoster] = useState<Poster | null>(null);
   const [headers, setHeaders] = useState<Record<string, string> | null>(null);
   const [frameToken, setFrameToken] = useState<string | null>(null);
@@ -113,6 +129,7 @@ export function LiveStream({ cameraId }: { cameraId: string }) {
   useEffect(() => {
     let live = true;
     setMjpegUrl(null);
+    setSignedFrame(null);
     if (!wantsMjpeg || !idToken) {
       setMode('frames');
       return;
@@ -124,8 +141,10 @@ export function LiveStream({ cameraId }: { cameraId: string }) {
       if (!live) return;
       if (signed) {
         setMjpegUrl(signed.url);
+        setSignedFrame(signed.frame);
         setMode('mjpeg');
       } else {
+        setSignedFrame(null);
         setMode('frames');
       }
     })();
@@ -155,6 +174,7 @@ export function LiveStream({ cameraId }: { cameraId: string }) {
       poster={poster}
       headers={headers}
       frameToken={frameToken}
+      signedFrame={signedFrame}
     />
   );
 }
@@ -186,7 +206,30 @@ function MjpegPlayer({
   const { color } = useTheme();
   const [painted, setPainted] = useState(false);
 
-  // A WebView that never reports a load is a stream that never started.
+  /**
+   * The stream inside a page, rather than the page being the stream.
+   *
+   * An MJPEG response is `multipart/x-mixed-replace`: it is never finished, by
+   * design, because the next frame is the next part. A WebView pointed straight
+   * at that URL therefore never fires `onLoadEnd` — there is no load to end — so
+   * the first-paint timer below always won and every go2rtc site fell back to
+   * frames after a few seconds of perfectly good video. That is the bug this
+   * wrapper fixes: the document finishes loading immediately, and the `<img>`
+   * inside it goes on streaming.
+   *
+   * The image reports for itself, too. `onLoadEnd` on the document would only
+   * say the HTML arrived; `onload` on the image says a frame actually decoded,
+   * which is the thing worth waiting for.
+   */
+  const page = `<!doctype html>
+<html><head><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}
+img{width:100%;height:100%;object-fit:contain;display:block}</style></head>
+<body><img src="${url}"
+  onload="window.ReactNativeWebView&&window.ReactNativeWebView.postMessage('painted')"
+  onerror="window.ReactNativeWebView&&window.ReactNativeWebView.postMessage('failed')"></body></html>`;
+
+  // A stream that never paints a frame is one that never started.
   useEffect(() => {
     if (painted) return;
     const timer = setTimeout(onFail, MJPEG_FIRST_PAINT_MS);
@@ -201,9 +244,13 @@ function MjpegPlayer({
         <Image source={{ uri: poster.uri, headers }} style={styles.fill} resizeMode="contain" />
       ) : null}
       <WebView
-        source={{ uri: url }}
+        source={{ html: page }}
+        originWhitelist={['*']}
         style={styles.fill}
-        onLoadEnd={() => setPainted(true)}
+        onMessage={(event) => {
+          if (event.nativeEvent.data === 'painted') setPainted(true);
+          else onFail();
+        }}
         onError={onFail}
         onHttpError={onFail}
         scrollEnabled={false}
@@ -229,6 +276,7 @@ function FramePlayer({
   poster,
   headers,
   frameToken,
+  signedFrame,
 }: {
   cameraId: string;
   intervalMs: number;
@@ -236,6 +284,11 @@ function FramePlayer({
   poster: Poster | null;
   headers: Record<string, string> | null;
   frameToken: string | null;
+  /**
+   * The site's own signed frame URL, where it has one. Preferred over the edge
+   * endpoint, which a go2rtc site does not feed.
+   */
+  signedFrame?: string | null;
 }) {
   const { color } = useTheme();
   const { orgId } = useConsole();
@@ -289,7 +342,14 @@ function FramePlayer({
 
     const tick = () => {
       if (!active.current) return;
-      setBack(dashboardApi.frameUrl(cameraId, frameToken));
+      // The site's signed frame where there is one; the edge endpoint otherwise.
+      // Cache-busted either way, so each poll is a new fetch rather than a
+      // re-read of whatever the image loader kept.
+      setBack(
+        signedFrame
+          ? `${signedFrame}${signedFrame.includes('?') ? '&' : '?'}_=${Date.now()}`
+          : dashboardApi.frameUrl(cameraId, frameToken),
+      );
     };
     tick();
     const timer = setInterval(tick, intervalMs);
@@ -301,7 +361,7 @@ function FramePlayer({
       clearInterval(timer);
       sub.remove();
     };
-  }, [cameraId, intervalMs, headers, frameToken, orgId]);
+  }, [cameraId, intervalMs, headers, frameToken, orgId, signedFrame]);
 
   const loaded = (url: string) => {
     fails.current = 0;
